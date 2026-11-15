@@ -145,14 +145,23 @@ try {
 }
 
 for (const view of Object.keys(VALID_VIEWS)) {
-  try {
-    const out = await request(`/api/dashboard?view=${view}`, { headers: { Cookie: cookie } });
-    // A page that throws half way still answers 200 with a truncated body, so the closing
-    // tag is what says it finished.
-    const whole = out.status === 200 && out.text.trimEnd().endsWith('</html>');
-    check(`halaman ${view}`, whole, `HTTP ${out.status}, ${out.text.length} byte`);
-  } catch (error) {
-    check(`halaman ${view}`, false, error.message);
+  // The first page after a restart draws on a cold cache - 1,467 orders from a database
+  // in Sydney took 20.5 s on 15 Nov and failed a healthy deploy for the third time. A
+  // page that only ran out of time is asked once more; the second answer comes from the
+  // cache the first one filled. A page that is actually broken fails both times.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const out = await request(`/api/dashboard?view=${view}`, { headers: { Cookie: cookie } });
+      // A page that throws half way still answers 200 with a truncated body, so the closing
+      // tag is what says it finished.
+      const whole = out.status === 200 && out.text.trimEnd().endsWith('</html>');
+      check(`halaman ${view}`, whole, `HTTP ${out.status}, ${out.text.length} byte${attempt > 1 ? ' (percobaan kedua)' : ''}`);
+      break;
+    } catch (error) {
+      if (attempt === 1 && /^lewat /.test(error.message)) continue;
+      check(`halaman ${view}`, false, error.message);
+      break;
+    }
   }
 }
 
