@@ -1,0 +1,60 @@
+import { readDoc, updateDoc } from './store/index.js';
+
+/**
+ * Who packs which parcel.
+ *
+ * A packer is a person whose whole job at the dashboard is to print the labels they were
+ * handed and pack those parcels. Agas (or anyone who may write) ticks orders on the
+ * label page and hands them to a packer; the packer's page shows only those. The record
+ * is one document: order key -> who it went to, by whom, when. An order is handed to one
+ * packer at a time; handing it again moves it. Entries older than two weeks fall away -
+ * a parcel is long gone by then.
+ */
+
+export const ASSIGN_DOC = 'labels/assignments.json';
+const KEEP_MS = 14 * 86400_000;
+const EMPTY = { orders: {} };
+
+export const orderKey = (o) => `${o.channel}:${o.id}`;
+const base = (doc) => ({ orders: doc?.orders && typeof doc.orders === 'object' ? doc.orders : {} });
+
+export function pruneAssignments(doc, now = Date.now()) {
+  const d = base(doc);
+  const orders = Object.fromEntries(Object.entries(d.orders).filter(([, a]) => now - (a?.at ?? 0) < KEEP_MS));
+  return { ...d, orders };
+}
+
+/** @param {{email: string, name?: string}} packer  @param {{email: string, name?: string}} by */
+export function applyAssign(doc, keys, packer, by, now = Date.now()) {
+  const d = pruneAssignments(doc, now);
+  const orders = { ...d.orders };
+  for (const key of keys) orders[key] = { to: packer.email, name: packer.name || packer.email, by: by?.email ?? null, at: now };
+  return { ...d, orders };
+}
+
+export function applyUnassign(doc, keys, now = Date.now()) {
+  const d = pruneAssignments(doc, now);
+  const orders = { ...d.orders };
+  for (const key of keys) delete orders[key];
+  return { ...d, orders };
+}
+
+/** The assignment on this order, or null. */
+export const assignmentFor = (doc, order) => base(doc).orders[orderKey(order)] ?? null;
+
+/** The orders of this packer, out of a list. */
+export const assignedTo = (doc, orders, email) => orders.filter((o) => assignmentFor(doc, o)?.to === email);
+
+/* ----------------------------------------------------------- the store */
+
+export async function loadAssignments() {
+  return pruneAssignments(await readDoc(ASSIGN_DOC).catch(() => null));
+}
+
+export async function assignLabels(keys, packer, by) {
+  await updateDoc(ASSIGN_DOC, (current) => applyAssign(current, keys, packer, by), structuredClone(EMPTY));
+}
+
+export async function unassignLabels(keys) {
+  await updateDoc(ASSIGN_DOC, (current) => applyUnassign(current, keys), structuredClone(EMPTY));
+}

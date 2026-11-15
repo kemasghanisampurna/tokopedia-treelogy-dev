@@ -16,6 +16,7 @@ import { ageOf } from './mekari/heartbeat.js';
 import { REVIEW_CHANNELS } from './reviews/combined.js';
 import { paginate, pageHref, pageWindow, PER_PAGE_OPTIONS, DEFAULT_PER_PAGE } from './paging.js';
 import { can, canView, homeView, ROLES } from './users.js';
+import { assignmentFor } from './label-assign.js';
 import { phoneForCourier } from './phone.js';
 
 /** Server-rendered omnichannel dashboard. No secrets and no user input reach the markup unescaped. */
@@ -93,6 +94,7 @@ icon.ext = '<path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.
 icon.grid = '<path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6Zm0 9.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6Zm0 9.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/>';
 icon.list = '<path d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>';
 icon.image = '<path d="m2.25 15.75 5.16-5.16a2.25 2.25 0 0 1 3.18 0l5.16 5.16m-1.5-1.5 1.41-1.41a2.25 2.25 0 0 1 3.18 0l2.91 2.91m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>';
+icon.user = '<circle cx="12" cy="8" r="3.75"/><path d="M5.25 20.25a6.75 6.75 0 0 1 13.5 0"/>';
 icon.info = '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.75h.01"/>';
 icon.export = '<path d="M12 15V3m0 0L8.5 6.5M12 3l3.5 3.5M20.25 14.25v4.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-4.5"/>';
 
@@ -845,6 +847,19 @@ h1{margin:0; font-size:clamp(1.55rem,2.6vw,2.1rem); font-weight:600; letter-spac
 }
 .ok{color:var(--good)} .flag{color:var(--warn)} .stop{color:var(--bad)}
 ${DIRECT_PRINT_CSS}
+.lb-to{display:inline-flex; align-items:center; gap:.25rem; color:var(--accent)} .lb-to .ico{width:.9rem; height:.9rem}
+.lb-assign{display:inline-flex; align-items:center; gap:.4rem} .lb-assign .dr__in{min-width:9rem}
+.lb-packers{gap:.4rem}
+.pk{display:grid; gap:.6rem; padding:.25rem 0 .5rem}
+.pk__c{display:grid; grid-template-columns:28px minmax(0,1fr); gap:.2rem .8rem; align-items:start; padding:.85rem 1rem; border:1px solid var(--line); border-radius:12px; background:var(--panel); cursor:pointer}
+.pk__c:has(.pick:checked){border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) inset}
+.pk__c:has(.pick:disabled){opacity:.55; cursor:default}
+.pk__pick{width:22px; height:22px; margin:.2rem 0 0; accent-color:var(--brand)}
+.pk__body{display:grid; gap:.25rem; min-width:0}
+.pk__top{display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .6rem} .pk__id{font-weight:600} .pk__when{font-size:.82rem}
+.pk__buyer{font-size:1.05rem; font-weight:600; line-height:1.3}
+.pk__goods{display:grid; gap:.1rem; color:var(--muted); font-size:.92rem}
+.pk__note{font-size:.85rem}
 .lb-tip{position:relative; display:inline-flex; vertical-align:-.2em; color:var(--muted); cursor:help; border-radius:50%}
 .lb-tip .ico{width:1rem; height:1rem}
 .lb-tip:hover, .lb-tip:focus-visible{color:var(--fg); outline:none}
@@ -5969,7 +5984,7 @@ const READY_TONE = { needsPrint: 'ok', reprint: 'flag' };
  * looks, ticks and prints exactly like one that was already on the page. A row with no
  * checkbox (`gone`) is one that cannot be printed, and `extra` says why underneath.
  */
-function labelRowHtml({ order: o, readiness, entry = null }, { batchKey = null, out = false, on = true, gone = false, extra = '' } = {}) {
+function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '' } = {}) {
   // The stage pill is redundant here - every row on this page is printable by
   // definition, and the readiness note already says what matters.
   const times = Number(entry?.times ?? 0);
@@ -5982,7 +5997,8 @@ function labelRowHtml({ order: o, readiness, entry = null }, { batchKey = null, 
         <span class="mono nowrap">${escape(o.id)}</span>
         <span class="pick__s">${escape(dateTime(o.createdAt, o.channel))} &middot; ${escape(o.carrier) || 'kurir belum ada'}</span>
       </td>
-      <td class="nowrap">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</td>
+      <td class="nowrap">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}${
+        assigned ? `<span class="pick__s lb-to" title="Ditugaskan ke ${escape(assigned.name || assigned.to)}">${svg('user')}${escape(assigned.name || assigned.to)}</span>` : ''}</td>
       <td class="nowrap"><span class="${readiness.changed ? 'stop' : (READY_TONE[readiness.state] ?? 'dim')}">${escape(readiness.note)}</span>${
         // What moved is a hover away, so the row stays one short line.
         readiness.what?.length ? ` <span class="lb-tip" tabindex="0" role="img" aria-label="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}" data-tip="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}">${svg('info')}</span>` : ''}${
@@ -6111,11 +6127,11 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
  * unticking is the exception. The form posts to a separate endpoint that streams the PDF
  * straight into the browser's print preview.
  */
-export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
+export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
   // took are a deliberate detour, not clutter in the daily view.
-  const assessed = orders.map((o) => ({ order: o, readiness: labelReadiness(o, printed, arranged) }));
+  const assessed = orders.map((o) => ({ order: o, readiness: labelReadiness(o, printed, arranged), assigned: assignmentFor(assignments, o) }));
   /*
    * Which "Cetak langsung" this page gets. A bench with an agent (seen within the week)
    * serves everybody and needs no phone to hold a printer; only when there is none does
@@ -6168,14 +6184,14 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
 
   let ticked = 0;
 
-  const labelRow = ({ order: o, readiness, entry = null }, batchKey = null, out = false) => {
+  const labelRow = ({ order: o, readiness, entry = null, assigned = null }, batchKey = null, out = false) => {
     // Everything printable starts ticked - except a run the filter left out, which is
     // only on the page so the search can reach it, and anything past what one print run
     // accepts.
     const gone = Boolean(readiness.unavailable);
     const on = !gone && !out && ticked < MAX_PRESELECT;
     if (on) ticked += 1;
-    return labelRowHtml({ order: o, readiness, entry }, { batchKey, out, on, gone });
+    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone });
   };
 
   /*
@@ -6250,6 +6266,47 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     : candidates.map((r) => labelRow(r)).join('');
 
 
+
+  /*
+   * The packer's page is a list of parcels, not a table of rows.
+   *
+   * It is read on a phone at a bench with one hand: each parcel is a card big enough to
+   * tap, saying who it is for, what goes in the box and which channel it ships on, with
+   * one button at the bottom. Nothing here reprints, marks or hands out; those are
+   * other people's jobs.
+   */
+  const packerCards = isPacker ? candidates.map(({ order: o, readiness }) => {
+    const gone = Boolean(readiness.unavailable);
+    const on = !gone && ticked < MAX_PRESELECT;
+    if (on) ticked += 1;
+    const goods = (o.lines ?? []).map((l) => `${l.name || l.sku}${l.variant ? ` (${l.variant})` : ''} ×${Number(l.qty) || 0}`);
+    return `<label class="pk__c" data-id="${escape(String(o.id).toLowerCase())}">
+      <input class="pick pk__pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
+      <span class="pk__body">
+        <span class="pk__top">${channelTag(o)}<span class="mono pk__id">${escape(o.id)}</span><span class="dim pk__when">${escape(dateTime(o.createdAt, o.channel))}</span></span>
+        <span class="pk__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</span>
+        ${goods.length ? `<span class="pk__goods">${goods.map((g) => `<span>${escape(g)}</span>`).join('')}</span>` : ''}
+        <span class="pk__note ${readiness.changed ? 'stop' : (READY_TONE[readiness.state] ?? 'dim')}">${escape(readiness.note)}</span>
+      </span>
+    </label>`;
+  }).join('') : '';
+
+  /*
+   * Handing out: whoever may write picks a packer and hands them the ticked labels, or
+   * takes the ticked ones back. The same form the print uses, so the ticks are the same.
+   */
+  const assignTools = !isPacker && can(user, 'assign') && packers.length ? `
+            <label class="lb-assign">
+              <span class="dr__lbl">Tugaskan ke</span>
+              <select class="dr__in" name="packer" id="lb-packer">${packers.map((pk) => `<option value="${escape(pk.email)}">${escape(pk.name)}</option>`).join('')}</select>
+            </label>
+            <button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self" name="action" value="label_assign">Tugaskan</button>
+            <button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self" name="action" value="label_unassign">Lepas</button>` : '';
+  const packerChips = !isPacker && packers.length ? `<div class="filters lb-packers">
+          <a class="chip${packerFilter ? '' : ' is-on'}" href="?view=labels">Semua</a>
+          <a class="chip${packerFilter === 'none' ? ' is-on' : ''}" href="?view=labels&amp;packer=none">Belum ditugaskan &middot; ${assessed.filter((r) => !r.assigned && r.readiness.state === 'needsPrint').length}</a>
+          ${packers.map((pk) => `<a class="chip${packerFilter === pk.email ? ' is-on' : ''}" href="?view=labels&amp;packer=${escape(encodeURIComponent(pk.email))}">${escape(pk.name)}${packerFilter ? '' : ` &middot; ${assessed.filter((r) => r.assigned?.to === pk.email && r.readiness.state === 'needsPrint').length}`}</a>`).join('')}
+        </div>` : '';
 
   const sizeOptions = Object.entries(sizes)
     .map(([id, meta]) => `<option value="${escape(id)}" ${id === defaultSize ? 'selected' : ''}>${escape(meta.label)}</option>`)
@@ -6330,6 +6387,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         <span class="rpf__n" id="lbq-n" hidden></span>
       </div>`;
   const empty = showReprints ? shownBatches.length === 0 : candidates.length === 0;
+  const searchBox = isPacker ? '' : search;
 
   return shell({ user,
     csrf,
@@ -6353,21 +6411,30 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
           <a class="chip${onlyChanged ? '' : ' is-on'}" href="?view=labels">Semua</a>
           <a class="chip${onlyChanged ? ' is-on' : ''}" href="?view=labels&amp;changed=1">Data berubah &middot; ${counts.changed}</a>
         </div>` : ''}
-        ${search}
+        ${packerChips}
+        ${searchBox}
         ${empty ? `<div id="lb-empty"><p class="empty">${!showReprints
-          ? (onlyChanged ? 'Tidak ada label yang perlu dicetak ulang.' : 'Semua label sudah dicetak.')
+          ? (isPacker ? 'Belum ada label yang ditugaskan kepadamu.' : onlyChanged ? 'Tidak ada label yang perlu dicetak ulang.' : packerFilter ? 'Tidak ada label di tumpukan ini.' : 'Semua label sudah dicetak.')
           : filtering
             ? 'Tidak ada batch cetak yang cocok dengan filter ini.'
             : 'Tidak ada label yang bisa dicetak.'}</p>
-         <div class="apply">${filtering
+         ${isPacker ? '' : `<div class="apply">${filtering
            ? '<a class="chip" href="?view=labels&reprint=1">Hapus filter</a>'
            : `<a class="chip" href="?view=labels&reprint=${showReprints ? '0' : '1'}">${
-              showReprints ? 'Kembali ke daftar harian' : 'Tampilkan cetak ulang'}</a>`}</div></div>` : ''}
+              showReprints ? 'Kembali ke daftar harian' : 'Tampilkan cetak ulang'}</a>`}</div>`}</div>` : ''}
         <form method="post" action="/api/labels" target="_blank" id="lbform"${empty ? ' data-empty hidden' : ''}>
           <input type="hidden" name="csrf" value="${escape(csrf)}">
-          <div class="filters">
+          ${isPacker ? `<div class="filters">
+            <input type="hidden" name="size" value="${escape(defaultSize)}">
+            <input type="checkbox" id="head" checked hidden aria-hidden="true" tabindex="-1">
+            <span class="dim">${candidates.length} label untukmu</span>
+            <span class="grow"></span>
+            <button class="chip" type="button" id="pickall" aria-pressed="true">Kosongkan semua</button>
+          </div>
+          <div class="pk" id="lb-rows">${packerCards}</div>
+          <div id="lbq-more" hidden></div>` : `<div class="filters">
             <label class="dr__lbl" for="size">Ukuran label</label>
-            <select class="dr__in" id="size" name="size">${sizeOptions}</select>
+            <select class="dr__in" id="size" name="size">${sizeOptions}</select>${assignTools}
             <span class="grow"></span>
             <a class="chip" href="?view=labels&reprint=${showReprints ? '0' : '1'}">${
               showReprints ? 'Daftar harian' : 'Cetak ulang'}</a>
@@ -6380,11 +6447,11 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
             </tr></thead>
             <tbody id="lb-rows">${rows}</tbody>
             <tbody id="lbq-more"></tbody>
-          </table></div>
+          </table></div>`}
           <div class="apply">
             <button type="submit" id="go">Cetak <span id="n">${ticked}</span> label</button>
             <span class="dim" id="over" hidden>Maksimal ${MAX_PRESELECT} label sekali cetak &mdash; bagi jadi beberapa batch.</span>
-            ${candidates.length > 0 && !showReprints
+            ${candidates.length > 0 && !showReprints && !isPacker
               ? `<button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self"
                    name="action" value="label_printed"
                    data-confirm-text="Tandai label yang tercentang sebagai sudah dicetak, tanpa mencetak?">Tandai sudah dicetak</button>`

@@ -26,6 +26,7 @@ import { printedLabels, markPrinted, markLabelStale, arrangedOrders } from '../s
 import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
+import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo } from '../src/label-assign.js';
 import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
 import { refreshOrders, refreshOneOrder, RESHIPS, diffOrder } from '../src/orders-refresh.js';
@@ -390,7 +391,7 @@ const ACTION_MENU = {
   bulk_price: 'products', bulk_stock: 'products', bulk_active: 'products', bulk_publish: 'products', bulk_remove: 'products',
   product_master: 'products', product_remove: 'products',
   mass_arrange: 'process', fulfil: 'process', mekari_sync: 'jurnal', manual_invoice: 'jurnal',
-  label_printed: 'labels', reviews_sync: 'reviews', refresh_order: 'orders', refund_order: 'orders', discard_manual: 'jurnal',
+  label_printed: 'labels', label_assign: 'labels', label_unassign: 'labels', reviews_sync: 'reviews', refresh_order: 'orders', refund_order: 'orders', discard_manual: 'jurnal',
   manual_update: 'jurnal',
   user_invite: 'users', user_resend: 'users', user_role: 'users', user_status: 'users', user_delete: 'users',
 };
@@ -958,6 +959,35 @@ export async function handleWrite(form, ip, user, csrf) {
           ...(out.wasInvoiced ? [{ field: 'faktur Jurnal', from: String(out.transactionNo ?? out.invoiceId), to: null }] : []),
         ],
       },
+    };
+  }
+
+  /*
+   * Handing labels to a packer, and taking them back.
+   *
+   * The packer's page is exactly this list: what was handed to them and is still to be
+   * printed. Handing an order that already has a packer moves it; nothing is split.
+   */
+  if (action === 'label_assign' || action === 'label_unassign') {
+    const LABEL_SELECTION = /^(tokopedia|tiktok_shop|shopee|shopify|manual):([A-Za-z0-9_#-]{1,64})$/;
+    const keys = form.getAll('order').map(String).filter((value) => LABEL_SELECTION.test(value));
+    if (keys.length === 0) throw new Error('tidak ada pesanan yang dipilih');
+    if (keys.length > 200) throw new Error('terlalu banyak sekaligus');
+    if (action === 'label_unassign') {
+      await unassignLabels(keys);
+      return {
+        view: 'labels', message: `${keys.length} pesanan dilepas dari packer`,
+        audit: { menu: 'labels', verb: 'edit', target: `${keys.length} pesanan`, summary: `Melepas ${keys.length} pesanan dari packer`, changes: keys.map((key) => ({ field: key, to: 'tanpa packer' })) },
+      };
+    }
+    const email = String(form.get('packer') ?? '').trim().toLowerCase();
+    const packer = (await listUsers()).find((u) => u.email === email && u.role === 'packer' && u.status === 'active');
+    if (!packer) throw new Error('packer tidak ditemukan atau tidak aktif');
+    await assignLabels(keys, packer, user);
+    console.log(`dashboard: label_assign ${keys.length} pesanan -> ${packer.email} oleh ${user.email}`);
+    return {
+      view: 'labels', message: `${keys.length} pesanan ditugaskan ke ${packer.name || packer.email}`,
+      audit: { menu: 'labels', verb: 'edit', target: `${keys.length} pesanan`, summary: `Menugaskan ${keys.length} label ke ${packer.name || packer.email}`, changes: keys.map((key) => ({ field: key, to: packer.name || packer.email })) },
     };
   }
 
@@ -2589,7 +2619,19 @@ export default async function handler(req, res) {
       // out and comes back. Same settling, same shared cooldown.
       const labelling = await settleWorklist(data, arrangedNow);
       data = await markRearranged(labelling.data);
-      const showReprints = url.searchParams.get('reprint') === '1';
+      /*
+       * Who packs what. A packer is shown their parcels and nothing else - not as a
+       * filter they could clear, as the whole list. Everybody else can look at one
+       * packer's pile, or at what nobody has been handed yet.
+       */
+      const assignments = await loadAssignments().catch(() => ({ orders: {} }));
+      const isPacker = user.role === 'packer';
+      const packers = (await listUsers().catch(() => [])).filter((u) => u.role === 'packer' && u.status === 'active').map((u) => ({ email: u.email, name: u.name || u.email }));
+      const packerFilter = isPacker ? '' : String(url.searchParams.get('packer') ?? '').slice(0, 120);
+      if (isPacker) data = { ...data, orders: assignedTo(assignments, data.orders, user.email) };
+      else if (packerFilter === 'none') data = { ...data, orders: data.orders.filter((o) => !assignmentFor(assignments, o)) };
+      else if (packerFilter) data = { ...data, orders: data.orders.filter((o) => assignmentFor(assignments, o)?.to === packerFilter) };
+      const showReprints = !isPacker && url.searchParams.get('reprint') === '1';
       // Only the reprint list names who printed, so the roster is only read for it. An
       // email is a fine identifier and a poor label; the batch header says "Vanya".
       const people = showReprints
@@ -2617,7 +2659,7 @@ export default async function handler(req, res) {
         showReprints, reprintFilter, now: Math.floor(Date.now() / 1000),
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
-        bench,
+        bench, assignments, packers, packerFilter, isPacker,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

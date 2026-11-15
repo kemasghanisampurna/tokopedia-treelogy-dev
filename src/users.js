@@ -27,9 +27,10 @@ export const ROLES = {
   operator: { label: 'Operator', desc: 'Mengubah stok, harga, pengiriman dan Jurnal. Tidak mengelola pengguna.' },
   viewer: { label: 'Peninjau', desc: 'Hanya melihat. Setiap tombol simpan ditolak.' },
   factory: { label: 'Factory', desc: 'Hanya melihat Stok gudang dan Prakiraan. Tidak melihat pesanan, tidak mengubah apa pun.' },
+  packer: { label: 'Packer', desc: 'Hanya menu Label, dan hanya pesanan yang ditugaskan kepadanya. Mencetak label, tidak mengubah apa pun yang lain.' },
 };
 /** Roles an admin may hand out. `owner` is not one of them. */
-export const ASSIGNABLE_ROLES = ['admin', 'operator', 'viewer', 'factory'];
+export const ASSIGNABLE_ROLES = ['admin', 'operator', 'viewer', 'factory', 'packer'];
 
 export const STATUS = {
   invited: 'Diundang',
@@ -41,7 +42,10 @@ const PERMISSIONS = {
   write: new Set(['owner', 'admin', 'operator']),
   users: new Set(['owner', 'admin']),
   // Orders carry buyers' names, phones and addresses: the factory sees none of them.
-  orders: new Set(['owner', 'admin', 'operator', 'viewer']),
+  // A packer sees the ones handed to them - a name and an address are what a parcel needs.
+  orders: new Set(['owner', 'admin', 'operator', 'viewer', 'packer']),
+  // Handing labels to a packer is a write, by whoever may write.
+  assign: new Set(['owner', 'admin', 'operator']),
 };
 
 /**
@@ -50,6 +54,7 @@ const PERMISSIONS = {
  */
 export const ROLE_VIEWS = {
   factory: new Set(['stock', 'forecast']),
+  packer: new Set(['labels']),
 };
 
 /** @param {{role?: string, status?: string}|null|undefined} user */

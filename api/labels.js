@@ -7,6 +7,7 @@ import {
 } from '../src/dashboard-auth.js';
 import { recordActivity } from '../src/audit.js';
 import { can } from '../src/users.js';
+import { loadAssignments } from '../src/label-assign.js';
 import { directPrinterFor } from '../src/direct-print.js';
 import { rasterizePdf } from '../src/label-raster.js';
 import { enqueueJob } from '../src/print-queue.js';
@@ -79,6 +80,15 @@ export default async function handler(req, res) {
   for (const value of form.getAll('order')) {
     const match = SELECTION.exec(String(value));
     if (match) selected.set(match[2], match[1]);
+  }
+  // A packer's print is held to the parcels handed to them, whatever the form says.
+  if (user.role === 'packer') {
+    const mine = (await loadAssignments().catch(() => ({ orders: {} }))).orders;
+    for (const [id, channel] of [...selected]) if (mine[`${channel}:${id}`]?.to !== user.email) selected.delete(id);
+    if (selected.size === 0) {
+      fail(403, 'Bukan tugasmu', 'Tidak ada pesanan yang ditugaskan kepadamu di pilihan ini.');
+      return;
+    }
   }
   if (selected.size === 0) {
     fail(400, 'Tidak ada yang dipilih', 'Centang minimal satu pesanan sebelum mencetak.');
