@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { readDoc, updateDoc } from './store/index.js';
 
 /**
@@ -83,9 +84,18 @@ export function summarize(doc, now = Date.now()) {
 
 /* ------------------------------------------------------------- the store */
 
+/**
+ * Rung the moment a job is queued, so an agent waiting at the door is handed it at once
+ * instead of on its next look. One process serves everything here, so an emitter is
+ * enough; the agent's periodic look stays as the net under it.
+ */
+export const queueBell = new EventEmitter();
+queueBell.setMaxListeners(50);
+
 export async function enqueueJob(input) {
   let made = null;
   await updateDoc(QUEUE_DOC, (current) => { const out = applyEnqueue(current, input); made = out.job; return out.doc; }, structuredClone(EMPTY));
+  queueBell.emit('job', made);
   return made;
 }
 

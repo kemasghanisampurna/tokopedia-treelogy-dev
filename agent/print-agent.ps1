@@ -97,7 +97,10 @@ while ($true) {
     Write-Log ('pekerjaan {0}: {1} halaman - {2}' -f $job.id, $pages.Count, $job.label)
     $ok = $true; $err = ''
     try {
-      foreach ($page in $pages) { [Treelogy.RawPrinter]::Send($printer, [Convert]::FromBase64String($page)) }
+      # All pages in one document: the spooler opens the printer once, not once a label.
+      $stream = New-Object System.IO.MemoryStream
+      foreach ($page in $pages) { $bytes = [Convert]::FromBase64String($page); $stream.Write($bytes, 0, $bytes.Length) }
+      [Treelogy.RawPrinter]::Send($printer, $stream.ToArray())
     } catch {
       $ok = $false; $err = $_.Exception.Message
       Write-Log ('GAGAL cetak {0}: {1}' -f $job.id, $err)

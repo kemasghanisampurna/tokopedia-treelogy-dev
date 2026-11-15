@@ -103,6 +103,10 @@ server.headersTimeout = 65 * 1000;
 await import('./src/master-store.js').then(async (m) => { await m.loadMasterOverlay(); m.watchMasterOverlay(); })
   .catch((error) => console.warn(`master: perubahan katalog tidak dimuat - ${error.message}`));
 
+// The label renderer warms up off the critical path, so the first print of the day is
+// as quick as the hundredth.
+setTimeout(() => import('./src/label-raster.js').then((m) => m.warm()).catch((error) => console.warn(`labels: pemanasan render gagal - ${error.message}`)), 4000).unref();
+
 server.listen(PORT, HOST, () => {
   console.log(`treelogy siap di http://${HOST}:${PORT} (state: ${process.env.STATE_BACKEND || 'auto'})`);
   warmDashboard();

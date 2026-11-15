@@ -18,7 +18,7 @@ test('a label PDF becomes one TSPL job per page, drawn at the bench printer\'s f
   const jobs = await rasterizePdf(bytes);
   assert.equal(jobs.length, 1);
   const text = Buffer.from(jobs[0]).toString('latin1');
-  assert.match(text, /^SIZE 100 mm,150 mm\r\nGAP 2 mm,0 mm\r\nDIRECTION 0\r\nCLS\r\n/);
+  assert.match(text, /^SIZE 100 mm,150 mm\r\nGAP 2 mm,0 mm\r\nSPEED 6\r\nDENSITY 10\r\nDIRECTION 0\r\nCLS\r\n/);
   assert.match(text, /BITMAP 0,\d+,100,\d+,0,/);
   assert.ok(text.endsWith('PRINT 1,1\r\n'));
   // The frame drawn 10pt in from the page edge lands inside the fitted, centred box.

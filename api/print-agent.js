@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { takeJob, finishJob, touchAgent } from '../src/print-queue.js';
+import { takeJob, finishJob, touchAgent, queueBell } from '../src/print-queue.js';
 
 /**
  * The bench agent's door.
@@ -13,7 +13,7 @@ import { takeJob, finishJob, touchAgent } from '../src/print-queue.js';
  */
 
 const MAX_WAIT_S = 25;
-const POLL_MS = 700;
+const POLL_MS = 2000;
 
 export function agentAuthorized(header, token = process.env.PRINT_AGENT_TOKEN) {
   if (!token || token.length < 16) return null;
@@ -23,7 +23,12 @@ export function agentAuthorized(header, token = process.env.PRINT_AGENT_TOKEN) {
   return a.length === b.length && timingSafeEqual(a, b) ? 'ok' : false;
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Resolves when a job is rung in, or after `ms` - whichever is first. */
+const bellOrSleep = (ms) => new Promise((resolve) => {
+  const done = () => { clearTimeout(timer); queueBell.off('job', done); resolve(); };
+  const timer = setTimeout(done, ms);
+  queueBell.on('job', done);
+});
 
 const readBody = (req, limit = 64 * 1024) => new Promise((resolve, reject) => {
   const chunks = [];
@@ -58,7 +63,7 @@ export default async function handler(req, res) {
     let job = await takeJob(agent);
     while (!job && Date.now() < until) {
       // eslint-disable-next-line no-await-in-loop
-      await sleep(POLL_MS);
+      await bellOrSleep(Math.min(POLL_MS, Math.max(50, until - Date.now())));
       if (req.destroyed) return;
       // eslint-disable-next-line no-await-in-loop
       job = await takeJob(agent);

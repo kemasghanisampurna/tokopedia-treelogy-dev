@@ -1,5 +1,3 @@
-import { fetchOrdersByIds } from '../src/omni.js';
-import { ordersForPrinting } from '../src/orders-by-id.js';
 import { markPrinted } from '../src/shopify/label.js';
 import { warehouseSweep } from '../src/warehouse-run.js';
 import { buildLabelSheet, LABEL_SIZES, DEFAULT_SIZE } from '../src/labels.js';
@@ -12,6 +10,7 @@ import { can } from '../src/users.js';
 import { directPrinterFor } from '../src/direct-print.js';
 import { rasterizePdf } from '../src/label-raster.js';
 import { enqueueJob } from '../src/print-queue.js';
+import { cachedPages, rememberPages, aheadOfTime, resolvers } from '../src/label-prefetch.js';
 
 /**
  * Streams a merged, print-ready PDF of official carrier waybills.
@@ -99,34 +98,30 @@ export default async function handler(req, res) {
     // lookup: its API is scoped to this shop, so an id that is not ours simply fails.
     const chosen = [...selected].map(([id, channel]) => ({ id, channel }));
 
+    // Rendered ahead of time while the page was open: those never go back to the
+    // platform; only the rest is fetched now. (Queue path only - the print dialog
+    // still wants the PDF itself.)
+    const queueing = form.get('format') === 'queue';
+    const ahead = queueing ? chosen.filter((o) => cachedPages(o)) : [];
+    const toBuild = queueing ? chosen.filter((o) => !cachedPages(o)) : chosen;
+
     const sheet = await buildLabelSheet({
-      orders: chosen,
+      orders: toBuild,
       size,
-      resolvePackages: async (tiktokOrders) => {
-        const { orders, errors } = await fetchOrdersByIds(tiktokOrders);
-        if (orders.length === 0 && Object.keys(errors).length > 0) {
-          throw new Error(Object.values(errors)[0]);
-        }
-        return orders;
-      },
+      resolvePackages: resolvers.resolvePackages,
       // A Shopify label is drawn from the order, so the whole order has to be read back -
       // the form carries ids, and an address typed into a form is not an address. It is
       // read from our own database first: a hundred keyed rows cost one round trip, while
       // asking Shopify for them means scanning sixty days of history.
-      resolveShopify: async (rows) => {
-        const { orders, errors } = await ordersForPrinting(rows);
-        if (orders.length === 0 && Object.keys(errors).length > 0) {
-          throw new Error(Object.values(errors)[0]);
-        }
-        return orders.filter((o) => o.channel === 'shopify' || o.channel === 'manual');
-      },
+      resolveShopify: resolvers.resolveShopify,
     });
 
     // Shopify has no idea a label exists, so the fact that one came out is recorded here
     // or the order would ask to be printed again tomorrow.
     let unrecorded = '';
-    if (sheet.printed?.length) {
-      await markPrinted(sheet.printed, { by: user.email, sigs: sheet.sigs ?? {} }).catch((error) => {
+    const printedKeys = [...(sheet.printed ?? []), ...ahead.map((o) => `${o.channel}:${o.id}`)];
+    if (printedKeys.length) {
+      await markPrinted(printedKeys, { by: user.email, sigs: sheet.sigs ?? {} }).catch((error) => {
         console.warn(`labels: gagal mencatat cetakan Shopify - ${error.message}`);
         unrecorded = error.message;
       });
@@ -157,10 +152,15 @@ export default async function handler(req, res) {
     // To the bench: rendered here into the printer's language and queued for the agent
     // on the packing laptop. Anybody who may print may queue; nothing to hold or pair.
     if (form.get('format') === 'queue') {
-      const pages = [];
+      const pages = [...ahead.flatMap((o) => cachedPages(o) ?? [])];
       for (const group of sheet.groups) {
         // eslint-disable-next-line no-await-in-loop
-        for (const tspl of await rasterizePdf(group.bytes)) pages.push(Buffer.from(tspl).toString('base64'));
+        const rendered = await rasterizePdf(group.bytes);
+        for (const tspl of rendered) pages.push(Buffer.from(tspl).toString('base64'));
+        // A single marketplace label rendered now is worth keeping for a reprint.
+        if (group.orders?.length === 1 && rendered.length === 1 && aheadOfTime(group.orders[0])) {
+          rememberPages(group.orders[0], [Buffer.from(rendered[0]).toString('base64')]);
+        }
       }
       const job = await enqueueJob({
         by: user.email, label: `${pages.length} label · ${user.name || user.email}`,

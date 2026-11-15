@@ -48,11 +48,23 @@ export async function rasterizePdf(bytes, printer = OKAY_D100) {
       ctx.restore();
       const px = ctx.getImageData(0, 0, width, height).data;
       const mono = packMono(px, width, height, { black: 0 });
-      jobs.push(tsplJob(mono, { widthMm: printer.widthMm, heightMm: printer.heightMm, gapMm: printer.gapMm, blank: 0xff }));
+      jobs.push(tsplJob(mono, { widthMm: printer.widthMm, heightMm: printer.heightMm, gapMm: printer.gapMm, blank: 0xff, speed: printer.speed ?? null, density: printer.density ?? null }));
       page.cleanup();
     }
   } finally {
     await doc.destroy().catch(() => {});
   }
   return jobs;
+}
+
+/**
+ * The first render after a start pays for loading pdf.js and compiling its paths - half
+ * a second nobody should pay at the printer. Done once when the server comes up.
+ */
+export async function warm() {
+  const { PDFDocument } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  doc.addPage([298, 420]);
+  await rasterizePdf(await doc.save());
+  return true;
 }

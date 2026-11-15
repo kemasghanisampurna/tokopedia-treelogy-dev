@@ -25,6 +25,8 @@ import { LABEL_SIZES, DEFAULT_SIZE, printedEntry } from '../src/labels.js';
 import { printedLabels, markPrinted, markLabelStale, arrangedOrders } from '../src/shopify/label.js';
 import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
+import { prefetchLabels } from '../src/label-prefetch.js';
+import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
 import { refreshOrders, refreshOneOrder, RESHIPS, diffOrder } from '../src/orders-refresh.js';
 import { discardManual } from '../src/mekari/discard.js';
@@ -2602,13 +2604,20 @@ export default async function handler(req, res) {
         to: day(url.searchParams.get('pto')),
         by: String(url.searchParams.get('pby') ?? '').slice(0, 120),
       };
+      const bench = await benchSnapshot().catch(() => null);
+      // With an agent on the bench, the marketplace waybills the page is about to offer
+      // are fetched and rendered now, in the background, so the press only queues.
+      if (bench?.online) {
+        const ready = data.orders.filter((o) => labelReadiness(o, printed, arrangedNow).state === 'needsPrint');
+        void prefetchLabels(ready);
+      }
       console.log(`dashboard/labels: ${data.orders.length} orders outstanding (${took()})`);
       send(200, renderLabels({ user,
         ...data, range, csrf, flash, sizes: LABEL_SIZES, defaultSize: DEFAULT_SIZE, printed, arranged: arrangedNow, people,
         showReprints, reprintFilter, now: Math.floor(Date.now() / 1000),
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
-        bench: await benchSnapshot().catch(() => null),
+        bench,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

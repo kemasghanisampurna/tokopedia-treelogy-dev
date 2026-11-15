@@ -33,7 +33,9 @@
 
 // 0.65 printed whole but a touch small (83% of the paper's width against the driver's
 // 85%, and shorter); 0.70 is the second measurement, 13 Nov 2026 afternoon.
-export const OKAY_D100 = { model: 'OKAY D100', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.70 };
+// SPEED 6 (inches a second) and DENSITY 10: the head runs faster and a shade darker than
+// its defaults; a printer that cannot do 6 clamps to its best and says nothing.
+export const OKAY_D100 = { model: 'OKAY D100', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.70, speed: 6, density: 10 };
 
 /** Who prints to which printer. One D100 on the packing bench, shared by the two who pack. */
 export const DIRECT_PRINTERS = {
@@ -126,8 +128,9 @@ export function inkBands(mono, { blank = 0xff, gap = 8 } = {}) {
  * One TSPL label: the size, then one BITMAP per band of ink, then PRINT. TSPL's BITMAP
  * prints a dot where the bit is 0, so the image is packed with `black: 0`.
  */
-export function tsplJob(mono, { widthMm = 100, heightMm = 150, gapMm = 2, rotate = false, blank = 0xff } = {}) {
-  const parts = [ascii(`SIZE ${widthMm} mm,${heightMm} mm\r\nGAP ${gapMm} mm,0 mm\r\nDIRECTION ${rotate ? 1 : 0}\r\nCLS\r\n`)];
+export function tsplJob(mono, { widthMm = 100, heightMm = 150, gapMm = 2, rotate = false, blank = 0xff, speed = null, density = null } = {}) {
+  const tuning = `${speed ? `SPEED ${speed}\r\n` : ''}${density ? `DENSITY ${density}\r\n` : ''}`;
+  const parts = [ascii(`SIZE ${widthMm} mm,${heightMm} mm\r\nGAP ${gapMm} mm,0 mm\r\n${tuning}DIRECTION ${rotate ? 1 : 0}\r\nCLS\r\n`)];
   for (const [from, to] of inkBands(mono, { blank })) {
     parts.push(ascii(`BITMAP 0,${from},${mono.widthBytes},${to - from},0,`));
     parts.push(mono.bytes.subarray(from * mono.widthBytes, to * mono.widthBytes));
@@ -646,7 +649,7 @@ export function hostScript(printer) {
     var ctx = canvas.getContext('2d', { willReadFrequently: true });
     var px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     var mono = packMono(px, canvas.width, canvas.height, { black: 0 });
-    return tsplJob(mono, { widthMm: printer.widthMm, heightMm: printer.heightMm, gapMm: printer.gapMm, blank: 0xff });
+    return tsplJob(mono, { widthMm: printer.widthMm, heightMm: printer.heightMm, gapMm: printer.gapMm, blank: 0xff, speed: printer.speed || null, density: printer.density || null });
   }
   var pdfjsReady = new Promise(function (resolve, reject) {
     var tag = document.createElement('script');
@@ -813,7 +816,8 @@ export function benchScript() {
       // any print; after that the agent's reclaim rule takes over and the page lets go.
       var started = Date.now(), status = 'pending';
       while (Date.now() - started < 180000) {
-        await new Promise(function (r) { setTimeout(r, 1500); });
+        // Quick looks while it is live: a label is on paper within a second or two.
+        await new Promise(function (r) { setTimeout(r, Date.now() - started < 15000 ? 400 : 1500); });
         var b = await snapshot().catch(function () { return null; });
         if (!b) continue;
         var job = (b.recent || []).filter(function (j) { return j.id === out.jobId; })[0];
