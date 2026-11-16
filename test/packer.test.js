@@ -49,7 +49,8 @@ test('the packer sees one row per parcel with its own print button, and none of 
   assert.match(html, /<dialog class="pq__sheet"/);
   assert.doesNotMatch(html, /Tandai sudah dicetak|Cetak ulang|name="packer"|id="lbq"|class="pagehead"|<div class="strip">/);
   const offline = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer], bench: null });
-  assert.match(offline, /label dibuka sebagai PDF/);
+  assert.match(offline, /id="pq-pair"/, 'a phone without a printer is offered to pair one');
+  assert.match(offline, /format: format/);
   const none = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments, packers: [packer] });
   assert.match(none, /Belum ada paket yang ditugaskan kepadamu/);
 });

@@ -37,15 +37,22 @@
 // its defaults; a printer that cannot do 6 clamps to its best and says nothing.
 export const OKAY_D100 = { model: 'OKAY D100', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.70, speed: 6, density: 10 };
 
-/** Who prints to which printer. One D100 on the packing bench, shared by the two who pack. */
+/**
+ * One phone, one printer (16 Nov 2026). Every person who prints labels gets the direct
+ * Bluetooth road; the phone remembers its own printer, so the pairing is a phone's, not
+ * a person's. The listed emails are kept for history; the role is what decides now.
+ */
 export const DIRECT_PRINTERS = {
   'kemas@treelogy.com': OKAY_D100,
   'agas@treelogy.com': OKAY_D100,
 };
+const PRINTING_ROLES = new Set(['owner', 'admin', 'operator', 'packer']);
 
 export function directPrinterFor(user) {
-  const email = String(user?.email ?? '').toLowerCase();
-  return DIRECT_PRINTERS[email] ?? null;
+  if (!user || (user.status && user.status !== 'active')) return null;
+  const email = String(user.email ?? '').toLowerCase();
+  if (DIRECT_PRINTERS[email]) return DIRECT_PRINTERS[email];
+  return PRINTING_ROLES.has(user.role) ? OKAY_D100 : null;
 }
 
 /** Where the host frame starts: only a dashboard path, never the host itself. */
@@ -349,7 +356,8 @@ export function directPrintScript(printer) {
   goBtn.addEventListener('click', async function () {
     if (!form || busy || !connected) return;
     var body = new URLSearchParams(new FormData(form));
-    body.set('format', 'json');
+    // Rendered on the server, in the printer's own language: the phone only sends bytes.
+    body.set('format', 'tspl');
     var orders = body.getAll('order');
     if (!orders.length) { say('Centang pesanan dulu.', 'is-on'); return; }
     busy = true; ready();
@@ -358,8 +366,9 @@ export function directPrintScript(printer) {
       var res = await fetch('/api/labels', { method: 'POST', body: body, credentials: 'same-origin' });
       var out = await res.json();
       if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
+      if (!out.pages || !out.pages.length) throw new Error((out.failures && out.failures[0] && out.failures[0].reason) || 'label tidak tersedia');
       printing = { orders: orders, failures: out.failures || [] };
-      host.postMessage({ type: 'dp:print', groups: out.groups.map(function (g) { return g.pdfBase64; }) }, location.origin);
+      host.postMessage({ type: 'dp:print', tspl: out.pages }, location.origin);
     } catch (e) {
       busy = false; progressOff(); say('Gagal: ' + e.message, 'is-off'); ready();
     }
@@ -440,32 +449,22 @@ export function hostScript(printer) {
   var store = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set: function (k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} },
                 del: function (k) { try { localStorage.removeItem(k); } catch (e) {} } };
-  var prefs = { chunk: Number(store.get('dp.chunk')) || 0, device: store.get('dp.device') || '', fit: printer.fit || 1 };
+  var prefs = { chunk: Number(store.get('dp.chunk')) || 0, device: store.get('dp.device') || '', fit: printer.fit || 1,
+                svc: store.get('dp.svc') || '', chr: store.get('dp.chr') || '' };
   var device = null, ch = null, busy = false, lastText = '', lastTone = '';
   /*
-   * One printer, several phones. A BLE printer takes one connection at a time, so a
-   * phone that holds it idle locks everyone else out. The link is therefore held only
-   * while printing: released a little after the last label and whenever this page is
-   * put away, and taken again - with no prompt, the device object outlives the link -
-   * the moment the next print starts. A phone that finds the printer taken waits a
-   * few seconds for the other to finish before giving up.
+   * One phone, one printer: the link is kept, not lent out. It is opened once and held
+   * for as long as this page is open; a printer that naps or a phone that locks drops it,
+   * and it is taken back quietly - on the drop itself and whenever the page is looked at
+   * again - so the next press finds it already there.
    */
-  var HOLD_MS = 15000, releaseTimer = null, releasing = false;
+  var releasing = false;
   function usable() { return !!device; }
-  function release(why) {
-    if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
-    if (!device || !device.gatt.connected || busy) return;
-    releasing = true;
-    try { device.gatt.disconnect(); } catch (e) {}
-    ch = null;
-    say('Siap · ' + (device.name || printer.model) + (why ? ' · ' + why : ''), 'is-on'); ready();
-  }
-  function holdThenRelease() {
-    if (releaseTimer) clearTimeout(releaseTimer);
-    releaseTimer = setTimeout(function () { release('dilepas agar HP lain bisa mencetak'); }, HOLD_MS);
-  }
-  document.addEventListener('visibilitychange', function () { if (document.hidden) release(''); });
-  window.addEventListener('pagehide', function () { release(''); });
+  function holdThenRelease() {}
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && device && !device.gatt.connected && !busy) attach(device, 2).catch(function () {});
+  });
+  window.addEventListener('pagehide', function () { releasing = true; try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch (e) {} });
 
   /* ---- the frame: keep the address bar honest, and the page's title ---- */
   function framePath() {
@@ -486,7 +485,7 @@ export function hostScript(printer) {
   /* ---- status, shown here and mirrored into the frame ---- */
   function say(text, tone) { lastText = text; lastTone = tone || ''; state.textContent = text; dot.className = 'dot ' + lastTone; }
   function tell() {
-    try { frame.contentWindow.postMessage({ type: 'dp:state', connected: usable(), busy: busy, text: lastText, tone: lastTone }, location.origin); } catch (e) {}
+    try { frame.contentWindow.postMessage({ type: 'dp:state', connected: usable(), live: !!ch, busy: busy, text: lastText, tone: lastTone, name: device ? (device.name || printer.model) : '' }, location.origin); } catch (e) {}
   }
   function ready() { connectBtn.textContent = usable() ? 'Ganti' : 'Sambungkan'; connectBtn.disabled = busy; connectBtn.classList.toggle('btn--go', !usable()); tell(); }
   function progress(frac, text) {
@@ -510,9 +509,10 @@ export function hostScript(printer) {
       ch = null;
       // Let go on purpose: nothing to chase. Dropped mid-print: get it back now.
       if (releasing) { releasing = false; ready(); return; }
-      if (!busy) { say('Siap · ' + (dev.name || printer.model), 'is-on'); ready(); return; }
-      say('Terputus - menyambung lagi…', 'is-busy'); ready();
-      attach(dev, 3).catch(function () { say('Printer terputus. Nyalakan lagi, lalu ketuk Sambungkan.', 'is-off'); ready(); });
+      // Taken back at once, quietly: the next press should find the link already open.
+      say('Menyambung lagi…', 'is-busy'); ready();
+      sleep(busy ? 0 : 800).then(function () { return attach(dev, busy ? 3 : 2); })
+        .catch(function () { say('Printer tidak terjangkau · disambung lagi saat mencetak', 'is-off'); ready(); });
     });
   }
   async function attach(dev, tries) {
@@ -521,6 +521,16 @@ export function hostScript(printer) {
       try { server = await dev.gatt.connect(); } catch (e) { err = e; await sleep(600 * (t + 1)); }
     }
     if (!server) throw err || new Error('tidak tersambung');
+    // The way in this printer showed last time, asked for directly: two round trips
+    // instead of walking every service and characteristic it has.
+    ch = null;
+    if (prefs.svc && prefs.chr) {
+      try {
+        var known = await (await server.getPrimaryService(prefs.svc)).getCharacteristic(prefs.chr);
+        if (known.properties.writeWithoutResponse || known.properties.write) ch = known;
+      } catch (e) { ch = null; }
+    }
+    if (ch) { store.set('dp.device', dev.id); prefs.device = dev.id; say('Siap · ' + (dev.name || printer.model), 'is-on'); ready(); return; }
     // Listing every service needs no argument in Chrome; implementations that insist on
     // one are asked for each known printer service in turn.
     var services = [];
@@ -537,23 +547,23 @@ export function hostScript(printer) {
     }
     if (!ch) throw new Error('printer tersambung tapi tidak ada jalur tulis Bluetooth (BLE) yang dikenal');
     store.set('dp.device', dev.id); prefs.device = dev.id;
+    try { prefs.svc = ch.service.uuid; prefs.chr = ch.uuid; store.set('dp.svc', prefs.svc); store.set('dp.chr', prefs.chr); } catch (e) {}
     say('Siap · ' + (dev.name || printer.model), 'is-on'); ready();
-    if (!busy) holdThenRelease();
   }
   // The link for a print: taken if it is not held, waiting out another phone's turn.
   async function hold() {
     if (ch && device && device.gatt.connected) return;
-    if (!device) throw new Error('printer belum dipilih - ketuk Sambungkan');
-    if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
+    if (!device) throw new Error('printer belum dipilih - ketuk Sambungkan di bilah atas');
     say('Menyambung ke printer…', 'is-busy'); ready();
-    try { await attach(device, 6); }
-    catch (e) { throw new Error('printer sedang dipakai HP lain atau mati - coba lagi sebentar'); }
+    try { await attach(device, 4); }
+    catch (e) { throw new Error('printer mati atau di luar jangkauan - nyalakan, lalu coba lagi'); }
   }
   async function choose() {
     say('Pilih printer di daftar…', 'is-busy');
     var dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
     wire(dev);
-    prefs.chunk = 0; store.set('dp.chunk', 0);
+    // A different printer: forget what the last one taught.
+    if (dev.id !== prefs.device) { prefs.chunk = 0; store.set('dp.chunk', 0); prefs.svc = ''; prefs.chr = ''; store.del('dp.svc'); store.del('dp.chr'); }
     await attach(dev, 1);
   }
   // Without a tap, where Chrome hands back devices this origin was allowed before.
@@ -651,7 +661,8 @@ export function hostScript(printer) {
     var mono = packMono(px, canvas.width, canvas.height, { black: 0 });
     return tsplJob(mono, { widthMm: printer.widthMm, heightMm: printer.heightMm, gapMm: printer.gapMm, blank: 0xff, speed: printer.speed || null, density: printer.density || null });
   }
-  var pdfjsReady = new Promise(function (resolve, reject) {
+  var pdfjsPromise = null;
+  function pdfjsLoad() { return pdfjsPromise || (pdfjsPromise = new Promise(function (resolve, reject) {
     var tag = document.createElement('script');
     tag.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
     tag.onload = function () {
@@ -660,9 +671,9 @@ export function hostScript(printer) {
     };
     tag.onerror = function () { reject(new Error('pembaca PDF gagal dimuat')); };
     document.head.appendChild(tag);
-  });
+  })); }
   async function renderPages(base64) {
-    var lib = await pdfjsReady;
+    var lib = await pdfjsLoad();
     var raw = atob(base64), data = new Uint8Array(raw.length);
     for (var i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
     var doc = await lib.getDocument({ data: data }).promise;
@@ -682,11 +693,22 @@ export function hostScript(printer) {
   }
 
   /* ---- what the pages ask for ---- */
-  async function print(groups) {
+  function fromBase64(b64) {
+    var raw = atob(b64), out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  // Pages the server already rendered into TSPL go straight to the printer; nothing is
+  // drawn on the phone. PDFs are the old road, kept for a server that sends them.
+  async function print(groups, tspl) {
     await hold();
-    var canvases = [];
-    for (var g = 0; g < groups.length; g++) canvases = canvases.concat(await renderPages(groups[g]));
-    var jobs = canvases.map(job);
+    var jobs;
+    if (tspl && tspl.length) jobs = tspl.map(fromBase64);
+    else {
+      var canvases = [];
+      for (var g = 0; g < (groups || []).length; g++) canvases = canvases.concat(await renderPages(groups[g]));
+      jobs = canvases.map(job);
+    }
     var total = jobs.reduce(function (s, j) { return s + j.length; }, 0), sent = 0;
     for (var j = 0; j < jobs.length; j++) {
       var before = sent;
@@ -700,18 +722,21 @@ export function hostScript(printer) {
     var m = e.data, reply = function (msg) { try { e.source.postMessage(msg, location.origin); } catch (err) {} };
     if (m.type === 'dp:hello') { tell(); return; }
     if (m.type !== 'dp:print') return;
-    if (busy) { reply({ type: 'dp:done', error: 'masih mengirim cetakan sebelumnya' }); return; }
-    busy = true; ready();
-    try {
-      progress(0, 'Menyiapkan label…');
-      var pages = await print(m.groups || []);
-      say(pages + ' label terkirim', 'is-on');
-      reply({ type: 'dp:done', pages: pages });
-    } catch (err) {
-      say('Gagal: ' + err.message, 'is-off');
-      reply({ type: 'dp:done', error: err.message });
-    } finally { busy = false; progressOff(); ready(); holdThenRelease(); }
+    // A second press while the first is still sending waits its turn, it is not refused.
+    queue = queue.then(async function () {
+      busy = true; ready();
+      try {
+        progress(0, 'Mengirim ke printer…');
+        var pages = await print(m.groups || [], m.tspl || null);
+        say('Siap · ' + (device.name || printer.model) + ' · ' + pages + ' label terkirim', 'is-on');
+        reply({ type: 'dp:done', pages: pages, id: m.id || null });
+      } catch (err) {
+        say('Gagal: ' + err.message, 'is-off');
+        reply({ type: 'dp:done', error: err.message, id: m.id || null });
+      } finally { busy = false; progressOff(); ready(); }
+    });
   });
+  var queue = Promise.resolve();
 
   ready();
   resume();

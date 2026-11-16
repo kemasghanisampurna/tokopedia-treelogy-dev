@@ -39,7 +39,7 @@ test('the ESC/POS job is a GS v 0 raster with little-endian dimensions', () => {
 test('only the packers get the direct printer, and only their pages carry the panel', () => {
   assert.equal(directPrinterFor({ email: 'KEMAS@treelogy.com' })?.model, 'OKAY D100');
   assert.equal(directPrinterFor({ email: 'agas@treelogy.com' })?.model, 'OKAY D100', 'Agas packs at the same bench');
-  assert.equal(directPrinterFor({ email: 'vanya@treelogy.com' }), null);
+  assert.equal(directPrinterFor({ email: 'vanya@treelogy.com', role: 'viewer', status: 'active' }), null);
   assert.equal(directPrinterFor(null), null);
   const args = { orders: [], range: {}, errors: {}, shopeeShop: null, generatedAt: 0, csrf: 't', flash: null, sizes: { a6: { label: 'A6' } }, defaultSize: 'a6' };
   assert.doesNotMatch(renderLabels(args), /id="dp"/);
@@ -134,11 +134,17 @@ test('an iPhone is told about Bluefy, and the host writes in a way every impleme
   assert.match(page, /id="nb"/);
 });
 
-test('the printer is held only while printing, so another phone can take its turn', () => {
+test('one phone, one printer: the link is kept, its way in remembered, and labels arrive as TSPL', () => {
   const host = hostScript({ model: 'x', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 });
-  assert.match(host, /HOLD_MS = 15000/);
-  assert.match(host, /visibilitychange/, 'put the phone away and the printer is free');
-  assert.match(host, /await hold\(\);/, 'a print takes the link first, without a prompt');
-  assert.match(host, /sedang dipakai HP lain/);
+  assert.doesNotMatch(host, /HOLD_MS|dilepas agar HP lain/, 'nothing lends the printer out');
+  assert.match(host, /store\.set\('dp\.svc', prefs\.svc\); store\.set\('dp\.chr', prefs\.chr\)/, 'service and characteristic remembered');
+  assert.match(host, /getPrimaryService\(prefs\.svc\)\)\.getCharacteristic\(prefs\.chr\)/, 'and asked for directly next time');
+  assert.match(host, /if \(tspl && tspl\.length\) jobs = tspl\.map\(fromBase64\)/, 'server-rendered pages go straight out');
+  assert.match(host, /queue = queue\.then/, 'a second press waits its turn');
+  assert.match(host, /visibilitychange/, 'reconnects when the page is looked at again');
+  assert.match(directPrintScript({ model: 'x' }), /body\.set\('format', 'tspl'\)/);
   new Function(host);
+  assert.equal(directPrinterFor({ email: 'budi@treelogy.com', role: 'packer', status: 'active' })?.model, 'OKAY D100', 'every packer');
+  assert.equal(directPrinterFor({ email: 'v@treelogy.com', role: 'viewer', status: 'active' }), null);
+  assert.equal(directPrinterFor({ email: 'f@treelogy.com', role: 'factory', status: 'active' }), null);
 });

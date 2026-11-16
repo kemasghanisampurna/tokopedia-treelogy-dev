@@ -2658,7 +2658,7 @@ export default async function handler(req, res) {
       const bench = await benchSnapshot().catch(() => null);
       // With an agent on the bench, the marketplace waybills the page is about to offer
       // are fetched and rendered now, in the background, so the press only queues.
-      if (bench?.online) {
+      if (bench?.online || directPrinterFor(user)) {
         const ready = data.orders.filter((o) => labelReadiness(o, printed, arrangedNow).state === 'needsPrint');
         void prefetchLabels(ready);
       }

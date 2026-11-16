@@ -67,7 +67,7 @@ export default async function handler(req, res) {
   try {
     // A hundred selections of ~30 bytes each still fits comfortably.
     form = await readFormBody(req, 16384);
-    wantsJson = form.get('format') === 'json' || form.get('format') === 'queue';
+    wantsJson = ['json', 'queue', 'tspl'].includes(form.get('format'));
   } catch {
     fail(400, 'Permintaan terlalu besar', 'Pilih lebih sedikit pesanan sekaligus.');
     return;
@@ -120,7 +120,7 @@ export default async function handler(req, res) {
     // Rendered ahead of time while the page was open: those never go back to the
     // platform; only the rest is fetched now. (Queue path only - the print dialog
     // still wants the PDF itself.)
-    const queueing = form.get('format') === 'queue';
+    const queueing = form.get('format') === 'queue' || form.get('format') === 'tspl';
     const ahead = queueing ? chosen.filter((o) => cachedPages(o)) : [];
     const toBuild = queueing ? chosen.filter((o) => !cachedPages(o)) : chosen;
 
@@ -170,7 +170,7 @@ export default async function handler(req, res) {
     }
     // To the bench: rendered here into the printer's language and queued for the agent
     // on the packing laptop. Anybody who may print may queue; nothing to hold or pair.
-    if (form.get('format') === 'queue') {
+    if (form.get('format') === 'queue' || form.get('format') === 'tspl') {
       const pages = [...ahead.flatMap((o) => cachedPages(o) ?? [])];
       for (const group of sheet.groups) {
         // eslint-disable-next-line no-await-in-loop
@@ -180,6 +180,15 @@ export default async function handler(req, res) {
         if (group.orders?.length === 1 && rendered.length === 1 && aheadOfTime(group.orders[0])) {
           rememberPages(group.orders[0], [Buffer.from(rendered[0]).toString('base64')]);
         }
+      }
+      // Straight to the phone's own Bluetooth printer: the bytes, ready to send.
+      if (form.get('format') === 'tspl') {
+        console.log(`labels: ${pages.length} label TSPL ke HP ${user.email}${ahead.length ? ` (${ahead.length} sudah disiapkan)` : ''}`);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ pages, failures: sheet.failures, unrecorded }));
+        return;
       }
       const job = await enqueueJob({
         by: user.email, label: `${pages.length} label · ${user.name || user.email}`,

@@ -849,8 +849,9 @@ h1{margin:0; font-size:clamp(1.55rem,2.6vw,2.1rem); font-weight:600; letter-spac
 ${DIRECT_PRINT_CSS}
 .pq{display:grid; gap:.75rem}
 .pq__bar{display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.2rem .1rem; font-size:.88rem; color:var(--muted)}
-.pq__status{display:inline-flex; align-items:center; gap:.5rem} .pq__count{font-variant-numeric:tabular-nums}
-.pq__dot{width:.55rem; height:.55rem; border-radius:50%; background:var(--dim)} .pq__dot.is-on{background:var(--good); box-shadow:0 0 8px var(--good)} .pq__dot.is-off{background:var(--bad)}
+.pq__status{display:inline-flex; align-items:center; gap:.5rem; min-width:0} .pq__count{font-variant-numeric:tabular-nums; margin-left:auto}
+.pq__link{min-height:40px; padding:0 1rem; border-radius:999px; border:1px solid var(--brand); background:transparent; color:var(--fg); font:inherit; font-size:.88rem; font-weight:600; cursor:pointer}
+.pq__dot{width:.55rem; height:.55rem; border-radius:50%; background:var(--dim); flex:none} .pq__dot.is-on{background:var(--good); box-shadow:0 0 8px var(--good)} .pq__dot.is-busy{background:var(--warn)} .pq__dot.is-off{background:var(--bad)}
 .pq__list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
 .pq__row{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; padding:.9rem 1rem; border:1px solid var(--line); border-radius:14px; background:var(--panel); transition:opacity .2s, border-color .2s}
 .pq__row[data-state="done"]{opacity:.55} .pq__row[data-state="done"] .pq__go{background:transparent; color:var(--good); border:1px solid var(--good); box-shadow:none}
@@ -6208,7 +6209,8 @@ function packerBody({ rows, bench, csrf, size, images }) {
 
   return `<div class="pq" id="pq" data-online="${online ? 1 : 0}" data-printer="${escape(printerName)}" data-csrf="${escape(csrf)}" data-size="${escape(size)}">
     <div class="pq__bar">
-      <span class="pq__status"><i class="pq__dot ${online ? 'is-on' : 'is-off'}" aria-hidden="true"></i>${escape(online ? `${printerName} siap` : 'Printer gudang tidak aktif · label dibuka sebagai PDF')}</span>
+      <span class="pq__status"><i class="pq__dot ${online ? 'is-on' : ''}" id="pq-dot" aria-hidden="true"></i><span id="pq-state">${escape(online ? `${printerName} siap` : 'Memeriksa printer…')}</span></span>
+      <button class="pq__link" type="button" id="pq-pair" hidden>Sambungkan printer</button>
       <span class="pq__count">${rows.length} paket</span>
     </div>
     ${rows.length ? `<ul class="pq__list">${list}</ul>` : '<p class="empty">Belum ada paket yang ditugaskan kepadamu.</p>'}
@@ -6239,9 +6241,44 @@ const PACKER_SCRIPT = `
   var sheet = document.getElementById('pq-sheet');
   var goodsEl = document.getElementById('pq-goods'), orderEl = document.getElementById('pq-order');
   var waitEl = document.getElementById('pq-wait'), errEl = document.getElementById('pq-err'), closeBtn = document.getElementById('pq-close');
-  var online = root.getAttribute('data-online') === '1', printer = root.getAttribute('data-printer');
+  var dot = document.getElementById('pq-dot'), stateEl = document.getElementById('pq-state'), pairBtn = document.getElementById('pq-pair');
+  var bench = root.getAttribute('data-online') === '1', benchName = root.getAttribute('data-printer');
   var esc = function (t) { return String(t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
-  var busy = false;
+  var busy = false, pending = null;
+
+  /*
+   * Which road a press takes. The phone's own printer, through the host bar that keeps
+   * the Bluetooth link open across pages (one phone, one printer); the bench agent if
+   * one is running; otherwise the label opens as a PDF.
+   */
+  var host = null, hostLive = false, hostReady = false, hostName = '';
+  try { if (window.parent !== window && window.parent.location.origin === location.origin) host = window.parent; } catch (e) { host = null; }
+  function setState(text, tone) { stateEl.textContent = text; dot.className = 'pq__dot ' + (tone || ''); }
+  if (host) {
+    window.addEventListener('message', function (e) {
+      if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
+      var m = e.data;
+      if (m.type === 'dp:state') {
+        hostReady = !!m.connected; hostLive = !!m.live; hostName = m.name || 'printer';
+        if (!busy) setState(hostReady ? (hostName + (hostLive ? ' siap' : ' · tersambung saat mencetak')) : 'Ketuk Sambungkan di bilah atas', hostReady ? (hostLive ? 'is-on' : 'is-busy') : 'is-off');
+      } else if (m.type === 'dp:done' && pending) {
+        var p = pending; pending = null;
+        if (m.error) fail(p.row, m.error); else done(p.row);
+      }
+    });
+    host.postMessage({ type: 'dp:hello' }, location.origin);
+  } else if (bench) {
+    setState(benchName + ' siap', 'is-on');
+  } else if (navigator.bluetooth) {
+    setState('Printer belum tersambung', '');
+    pairBtn.hidden = false;
+  } else {
+    setState('Label dibuka sebagai PDF', '');
+  }
+  pairBtn.addEventListener('click', function () {
+    try { localStorage.setItem('dp.host', '1'); } catch (e) {}
+    window.top.location.href = '/api/dashboard?view=printer&go=' + encodeURIComponent(location.pathname + location.search);
+  });
 
   function step(n, failed) {
     sheet.querySelectorAll('.pq__step').forEach(function (s) {
@@ -6249,7 +6286,9 @@ const PACKER_SCRIPT = `
       s.className = 'pq__step' + (k < n ? ' is-done' : k === n ? (failed ? ' is-fail' : ' is-now') : '');
     });
   }
-  function show(row) {
+  var current = 1;
+  function go(n) { current = n; step(n); }
+  function show(row, who) {
     var goods = []; try { goods = JSON.parse(row.querySelector('.pq__goods').textContent); } catch (e) {}
     orderEl.textContent = row.querySelector('.pq__id').textContent + ' · ' + row.querySelector('.pq__buyer').textContent;
     goodsEl.innerHTML = goods.map(function (g) {
@@ -6257,19 +6296,25 @@ const PACKER_SCRIPT = `
         + '<span class="pq__gname"><b>' + esc(g.name) + '</b>' + (g.variant ? '<small>' + esc(g.variant) + '</small>' : '') + '</span>'
         + '<span class="pq__qty mono">×' + g.qty + '</span></li>';
     }).join('') || '<li class="dim">Isi paket tidak tercatat.</li>';
-    errEl.hidden = true; waitEl.textContent = 'Menunggu ' + printer + ' mencetak';
-    step(1); closeBtn.disabled = true;
+    errEl.hidden = true; waitEl.textContent = 'Menunggu ' + who + ' mencetak';
+    go(1); closeBtn.disabled = true;
     if (typeof sheet.showModal === 'function') sheet.showModal(); else sheet.setAttribute('open', '');
   }
-  function done(row, ok, message) {
-    busy = false; closeBtn.disabled = false;
-    if (ok) {
-      step(4);
-      row.setAttribute('data-state', 'done');
-      var b = row.querySelector('.pq__go'); b.disabled = true; b.querySelector('.pq__go-t').textContent = 'Dicetak';
-    } else {
-      errEl.textContent = message; errEl.hidden = false;
-    }
+  function done(row) {
+    busy = false; closeBtn.disabled = false; step(4);
+    row.setAttribute('data-state', 'done');
+    var b = row.querySelector('.pq__go'); b.disabled = true; b.querySelector('.pq__go-t').textContent = 'Dicetak';
+  }
+  function fail(row, message) {
+    busy = false; closeBtn.disabled = false; step(current, true);
+    errEl.textContent = 'Gagal: ' + message; errEl.hidden = false;
+  }
+  async function fetchLabel(key, format) {
+    var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), size: root.getAttribute('data-size'), order: key, format: format });
+    var res = await fetch('/api/labels', { method: 'POST', body: body, credentials: 'same-origin' });
+    var out = await res.json();
+    if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
+    return out;
   }
   async function snapshot() {
     var r = await fetch(location.pathname + '?view=labels&bench=1', { credentials: 'same-origin', cache: 'no-store' });
@@ -6279,33 +6324,38 @@ const PACKER_SCRIPT = `
   root.addEventListener('click', async function (e) {
     var btn = e.target.closest('[data-print]'); if (!btn || busy) return;
     var row = btn.closest('.pq__row'), key = btn.getAttribute('data-print');
-    busy = true; show(row);
-    if (!online) {
-      // No agent on the bench: the label opens as a PDF, as the print dialog always did.
-      var f = document.getElementById('pq-pdf'); f.elements.order.value = key; f.submit();
-      step(3); waitEl.textContent = 'Label dibuka di tab baru';
-      return done(row, true);
-    }
+    busy = true;
     try {
-      var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), size: root.getAttribute('data-size'), order: key, format: 'queue' });
-      var res = await fetch('/api/labels', { method: 'POST', body: body, credentials: 'same-origin' });
-      var out = await res.json();
-      if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
-      if (!out.pages) throw new Error((out.failures && out.failures[0] && out.failures[0].reason) || 'label tidak tersedia');
-      step(2);
-      var started = Date.now();
-      while (Date.now() - started < 180000) {
-        await new Promise(function (r) { setTimeout(r, Date.now() - started < 15000 ? 400 : 1500); });
-        var b = await snapshot().catch(function () { return null; }); if (!b) continue;
-        var job = (b.recent || []).filter(function (j) { return j.id === out.jobId; })[0]; if (!job) continue;
-        if (job.status === 'done') return done(row, true);
-        if (job.status === 'failed') throw new Error(job.error || 'printer gagal mencetak');
+      if (host && hostReady) {
+        // The phone's printer: the server sends the label ready-made, the host sends it on.
+        show(row, hostName);
+        var out = await fetchLabel(key, 'tspl');
+        if (!out.pages || !out.pages.length) throw new Error((out.failures && out.failures[0] && out.failures[0].reason) || 'label tidak tersedia');
+        go(2); pending = { row: row };
+        host.postMessage({ type: 'dp:print', tspl: out.pages }, location.origin);
+        return;
       }
-      throw new Error('belum ada kabar dari ' + printer + ' - cek laptop di meja packing');
-    } catch (err) {
-      step(Number((sheet.querySelector('.pq__step.is-now') || {}).getAttribute ? sheet.querySelector('.pq__step.is-now').getAttribute('data-step') : 1), true);
-      done(row, false, 'Gagal: ' + err.message);
-    }
+      if (bench) {
+        show(row, benchName);
+        var q = await fetchLabel(key, 'queue');
+        if (!q.pages) throw new Error((q.failures && q.failures[0] && q.failures[0].reason) || 'label tidak tersedia');
+        go(2);
+        var started = Date.now();
+        while (Date.now() - started < 180000) {
+          await new Promise(function (r) { setTimeout(r, Date.now() - started < 15000 ? 400 : 1500); });
+          var b = await snapshot().catch(function () { return null; }); if (!b) continue;
+          var job = (b.recent || []).filter(function (j) { return j.id === q.jobId; })[0]; if (!job) continue;
+          if (job.status === 'done') return done(row);
+          if (job.status === 'failed') throw new Error(job.error || 'printer gagal mencetak');
+        }
+        throw new Error('belum ada kabar dari ' + benchName);
+      }
+      // No printer to talk to: the label opens as a PDF, as the print dialog always did.
+      show(row, 'kamu');
+      var f = document.getElementById('pq-pdf'); f.elements.order.value = key; f.submit();
+      go(3); waitEl.textContent = 'Label dibuka di tab baru';
+      done(row);
+    } catch (err) { pending = null; fail(row, err.message); }
   });
   closeBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
   sheet.addEventListener('cancel', function (e) { if (busy) e.preventDefault(); });
@@ -6322,7 +6372,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
    * serves everybody and needs no phone to hold a printer; only when there is none does
    * a person with their own Bluetooth printer get that road instead.
    */
-  const benchKnown = Boolean(bench?.seenAt && now * 1000 - bench.seenAt < 7 * 86400_000);
+  // The bench agent only when it is actually there; otherwise each phone's own printer.
+  const benchKnown = Boolean(bench?.online);
   const printPanel = benchKnown ? benchPanel(bench, { escape }) : (directPrinter ? directPrintPanel(directPrinter, { escape }) : '');
   const printScript = benchKnown ? benchScript() : (directPrinter ? directPrintScript(directPrinter) : '');
 
