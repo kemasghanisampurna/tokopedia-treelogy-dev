@@ -23,6 +23,7 @@ import { needsPickupTime } from '../src/shopee/pickup.js';
 import { fetchOrdersByIds } from '../src/omni.js';
 import { LABEL_SIZES, DEFAULT_SIZE, printedEntry } from '../src/labels.js';
 import { printedLabels, markPrinted, markLabelStale, arrangedOrders } from '../src/shopify/label.js';
+import { heldOrders, withHolds } from '../src/shopify/hold.js';
 import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
@@ -2590,12 +2591,14 @@ export default async function handler(req, res) {
         return;
       }
       try {
-        const [found, printed, arrangedNow, roster] = await Promise.all([
+        const [matched, printed, arrangedNow, roster, holds] = await Promise.all([
           ordersMatchingId(fragment),
           printedLabels().catch(() => ({})),
           arrangedOrders().catch(() => ({})),
           listUsers().catch(() => []),
+          heldOrders().catch(() => ({})),
         ]);
+        const found = withHolds({ orders: matched }, holds).orders;
         const people = Object.fromEntries(roster.map((u) => [u.email, u.name]));
         console.log(`dashboard/labels lookup: ${found.length} match(es)`);
         json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people }), count: found.length });
@@ -2623,7 +2626,8 @@ export default async function handler(req, res) {
       // A waybill printed for an order the platform has cancelled is a parcel that goes
       // out and comes back. Same settling, same shared cooldown.
       const labelling = await settleWorklist(data, arrangedNow);
-      data = await markRearranged(labelling.data);
+      // A buyer paying for a change right now: the label waits (src/shopify/hold.js).
+      data = withHolds(await markRearranged(labelling.data), await heldOrders().catch(() => ({})));
       /*
        * Who packs what. A packer is shown their parcels and nothing else - not as a
        * filter they could clear, as the whole list. Everybody else can look at one
@@ -2675,7 +2679,8 @@ export default async function handler(req, res) {
       const arranged = await arrangedOrders().catch(() => ({}));
 
       const settling = await settleWorklist(data, arranged);
-      data = await markRearranged(settling.data);
+      // A buyer paying for a change right now is not arranged under them (src/shopify/hold.js).
+      data = withHolds(await markRearranged(settling.data), await heldOrders().catch(() => ({})));
 
       console.log(`dashboard/process: ${data.orders.length} orders outstanding (${took()})`);
       send(200, renderProcess({ user,

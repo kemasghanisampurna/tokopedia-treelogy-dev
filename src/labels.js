@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { buildShopifyLabels, reservePickNumbers } from './shopify/label.js';
+import { isHeld } from './shopify/hold.js';
 import { PREFIXES, sourceShips } from './mekari/prefix.js';
 import { loadConfig } from './config.js';
 import { benchDate, benchZone } from './clock.js';
@@ -847,6 +848,8 @@ export function labelReadiness(order, printed = {}, arranged = {}) {
   if (order.channel === 'shopify') {
     if (wasPrinted(printed, order)) return { state: 'reprint', note: 'sudah dicetak' };
     if (order.stage !== 'to_ship') return { state: 'none', note: 'sudah selesai, tidak perlu label' };
+    // Paying for a change right now: a sheet printed now would describe the old order.
+    if (isHeld(order)) return { state: 'waiting', note: 'pembeli sedang mengubah pesanan' };
     if (!arranged[order.id]) return { state: 'arrange', note: 'atur pengiriman dulu' };
     // Printed, then edited in Shopify: the sheet on the parcel is wrong. Named, so it is
     // not read as a label nobody has got round to.

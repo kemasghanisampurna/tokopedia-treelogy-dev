@@ -86,6 +86,12 @@ query TreelogyOrders($cursor: String, $query: String) {
         originalPriceSet { shopMoney { amount } }
         discountAllocations { allocatedAmountSet { shopMoney { amount } } discountApplication { index } }
       }
+      shippingLines(first: 5) {
+        nodes {
+          originalPriceSet { shopMoney { amount } }
+          discountAllocations { allocatedAmountSet { shopMoney { amount } } discountApplication { index } }
+        }
+      }
       fulfillments(first: 5) {
         trackingInfo { number company }
       }
@@ -306,6 +312,8 @@ query TreelogyOrderByGid($id: ID!) {
   order(id: $id) {
     id
     name
+    note
+    totalWeight
     createdAt
     cancelledAt
     displayFinancialStatus
@@ -339,6 +347,12 @@ query TreelogyOrderByGid($id: ID!) {
     shippingLine {
       originalPriceSet { shopMoney { amount } }
       discountAllocations { allocatedAmountSet { shopMoney { amount } } discountApplication { index } }
+    }
+    shippingLines(first: 5) {
+      nodes {
+        originalPriceSet { shopMoney { amount } }
+        discountAllocations { allocatedAmountSet { shopMoney { amount } } discountApplication { index } }
+      }
     }
     fulfillments(first: 5) { trackingInfo { number company } }
   }
