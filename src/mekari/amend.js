@@ -27,6 +27,39 @@ import { invoiceSignature } from './drift.js';
 const INVOICES_PATH = '/public/jurnal/api/v1/sales_invoices';
 
 /**
+ * Whether a paid invoice may still be rewritten, and why not when it may not.
+ *
+ * The refusal above protects payments somebody recorded by hand. But a web-shop invoice
+ * is born paid: buildInvoice marks it settled on deposit into the Website pooling account
+ * in the same request that creates it (invoice.js, `deposit`). That payment is ours, it is
+ * restated by every rebuild, and redate.js already replaces such invoices whole and keeps
+ * the payment's id (see the long note there). So when the only money on the invoice is the
+ * deposit this code posted - the amount it last wrote - and the rebuild carries a deposit
+ * again, rewriting it moves the payment with it rather than orphaning it.
+ *
+ * That is what a buyer editing their own order needs (treelogy-order-edit): the new total
+ * is what they have now paid, original checkout plus the QRIS difference, or less a
+ * refund CS sends back.
+ *
+ * Off unless MEKARI_AMEND_DEPOSIT_PAID=1. Restating a deposit to a DIFFERENT amount has
+ * not been observed against the live Jurnal yet - redate only ever restated the same sum -
+ * so it is switched on after one supervised edit, not by a deploy.
+ *
+ * @returns {string|null} the reason to refuse, or null to go ahead
+ */
+export function amendRefusal(invoice, built, entry, { allowDepositRestate = process.env.MEKARI_AMEND_DEPOSIT_PAID === '1' } = {}) {
+  const refusal = refusalFor(invoice);
+  if (!refusal) return null;
+  if (!allowDepositRestate) return refusal;
+  const stated = invoice?.payment_received_amount;
+  const received = stated === undefined || stated === null || stated === '' ? null : Math.round(Number(stated));
+  const posted = Math.round(Number(entry?.total));
+  const ours = received !== null && Number.isFinite(posted) && posted > 0 && received === posted;
+  if (ours && built?.sales_invoice?.deposit !== undefined && built.sales_invoice.deposit_to_name) return null;
+  return refusal;
+}
+
+/**
  * @param {object} order  the rebuilt order, already carrying the edit
  * @returns {Promise<{customId: string, invoiceId: number|null, transactionNo: string|null,
  *   total: number, amended: boolean}>}
@@ -74,7 +107,7 @@ async function amendNow(order, {
 
   const found = await call({ path: `${INVOICES_PATH}/${invoiceId}` });
   const invoice = found?.sales_invoice ?? found;
-  const refusal = refusalFor(invoice);
+  const refusal = amendRefusal(invoice, built, entry);
   if (refusal) throw new Error(refusal);
 
   await call({ method: 'PATCH', path: `${INVOICES_PATH}/${invoiceId}`, body: { sales_invoice: built.sales_invoice } });

@@ -324,6 +324,21 @@ function financeFromShopee(order) {
   };
 }
 
+/**
+ * The shipping lines an order carries now.
+ *
+ * `shippingLine` is the one chosen at checkout and it never moves. When an order is
+ * edited - a buyer correcting their own address into a dearer zone, say - Shopify removes
+ * that line and adds another, and only `shippingLines` (which leaves removed lines out by
+ * default) says so. A stored payload from before this field was read has only the old
+ * one, and reads exactly as it always did.
+ */
+export function shopifyShipping(order) {
+  const live = order?.shippingLines?.nodes;
+  if (Array.isArray(live)) return live;
+  return order?.shippingLine ? [order.shippingLine] : [];
+}
+
 export function financeFromShopify(order) {
   const lines = (order.lineItems?.nodes ?? []).map((li) => {
     const qty = Number(li.quantity) || 0;
@@ -359,7 +374,7 @@ export function financeFromShopify(order) {
     // Shopify is the seller's own store: the shipping charge is set by the seller and
     // received by the seller, so unlike the marketplaces it is genuine revenue.
     lines: foldLines(lines),
-    shipping: toNumber(order.shippingLine?.originalPriceSet?.shopMoney?.amount),
+    shipping: shopifyShipping(order).reduce((sum, s) => sum + toNumber(s.originalPriceSet?.shopMoney?.amount), 0),
     discounts: shopifyDiscounts(order),
     currency: order.totalPriceSet?.shopMoney?.currencyCode ?? 'IDR',
   };
@@ -379,7 +394,7 @@ export function shopifyDiscounts(order) {
   const taken = new Map();
   const allocations = [
     ...(order.lineItems?.nodes ?? []).flatMap((li) => li.discountAllocations ?? []),
-    ...(order.shippingLine?.discountAllocations ?? []),
+    ...shopifyShipping(order).flatMap((s) => s.discountAllocations ?? []),
   ];
   for (const a of allocations) {
     const index = a.discountApplication?.index;

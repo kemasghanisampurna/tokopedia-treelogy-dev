@@ -9,6 +9,7 @@ import { shippingMethod, shippingMethods, shipBody, PICKUP, DROPOFF } from './sh
 import { shopifyGraphql } from './shopify/client.js';
 import { isShopifyConfigured } from './shopify/config.js';
 import { markArranged } from './shopify/label.js';
+import { heldOrders, activeHold, isHeld } from './shopify/hold.js';
 import { isReadOnly, ReadOnlyError, writeAudit } from './stock-sync.js';
 
 /**
@@ -62,6 +63,9 @@ export function nextAction(order, arranged = {}) {
    * the shop, and offering to arrange a courier for it is offering nothing.
    */
   if (order.channel === 'shopify' || (order.channel === 'manual' && sourceShips(order.source))) {
+    // The buyer is paying for a change to this order right now (src/shopify/hold.js).
+    // Arranging it would send the parcel out with what they are replacing.
+    if (isHeld(order)) return null;
     return order.stage === 'to_ship' && !arranged[order.id]
       ? { action: 'arrange_local', label: 'Atur pengiriman', needs: [] }
       : null;
@@ -615,7 +619,12 @@ export async function massArrange(orders, {
   // Booked outside this system and recorded here: Shopify, and the typed-in parcels that
   // ship. Neither has an API to call, and a manual order sent to TikTok's would have been
   // an order id that platform has never heard of.
-  const local = orders.filter((o) => o.channel === 'shopify' || o.channel === 'manual');
+  const candidates = orders.filter((o) => o.channel === 'shopify' || o.channel === 'manual');
+  // Read at the moment of arranging, not from the page: a buyer may have started paying
+  // for a change after the operator opened the queue.
+  const holds = candidates.some((o) => o.channel === 'shopify') ? await heldOrders().catch(() => ({})) : {};
+  const heldNow = candidates.filter((o) => activeHold(holds, o));
+  const local = candidates.filter((o) => !activeHold(holds, o));
   const tiktok = orders.filter((o) => o.channel !== 'shopee' && o.channel !== 'shopify' && o.channel !== 'manual');
 
   const [tiktokResults, shopeeResults, localResults] = await Promise.all([
@@ -628,7 +637,8 @@ export async function massArrange(orders, {
         .catch((error) => local.map((o) => failed(o, error.message))),
   ]);
 
-  const results = await confirmArranged([...tiktokResults, ...shopeeResults, ...localResults], { refresh, waits });
+  const heldResults = heldNow.map((o) => failed(o, 'pembeli sedang mengubah pesanan ini - tunggu sampai selesai'));
+  const results = await confirmArranged([...tiktokResults, ...shopeeResults, ...localResults, ...heldResults], { refresh, waits });
   await writeAudit({ results }, { guards: { action: 'mass_arrange' } }).catch(() => {});
   return {
     results,

@@ -1,4 +1,5 @@
 import { markPrinted } from '../src/shopify/label.js';
+import { heldOrders, activeHold } from '../src/shopify/hold.js';
 import { warehouseSweep } from '../src/warehouse-run.js';
 import { buildLabelSheet, LABEL_SIZES, DEFAULT_SIZE } from '../src/labels.js';
 import { dashboardError, renderLabelReport } from '../src/dashboard-page.js';
@@ -106,7 +107,15 @@ export default async function handler(req, res) {
     // has to be read from the order, so those are resolved server-side and a tampered
     // form cannot smuggle in a package that is not the seller's. Shopee needs no such
     // lookup: its API is scoped to this shop, so an id that is not ours simply fails.
-    const chosen = [...selected].map(([id, channel]) => ({ id, channel }));
+    const picked = [...selected].map(([id, channel]) => ({ id, channel }));
+    // Checked here, at the moment of printing, and not only on the page: the page may
+    // have been open since before the buyer started paying for a change to the order.
+    const holds = picked.some((o) => o.channel === 'shopify') ? await heldOrders().catch(() => ({})) : {};
+    const chosen = picked.filter((o) => !activeHold(holds, o));
+    if (chosen.length === 0) {
+      fail(409, 'Pembeli sedang mengubah pesanan', 'Pesanan yang dipilih sedang diubah dan dibayar oleh pembeli. Tunggu beberapa menit lalu muat ulang.');
+      return;
+    }
 
     // Rendered ahead of time while the page was open: those never go back to the
     // platform; only the rest is fetched now. (Queue path only - the print dialog

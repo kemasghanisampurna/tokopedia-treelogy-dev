@@ -36,6 +36,8 @@ const ROUTES = {
   '/api/webhook/tiktok': './api/webhook/tiktok.js',
   '/api/webhook/shopify': './api/webhook/shopify.js',
   '/api/deploy': './api/deploy.js',
+  // Machine-to-machine, loopback only: the buyer-facing order editor on this VPS.
+  '/api/internal/order-edit': './api/internal/order-edit.js',
 };
 
 const handlers = new Map();
