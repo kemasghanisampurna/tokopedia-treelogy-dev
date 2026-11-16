@@ -47,6 +47,8 @@ test('the packer sees cards for their parcels, one button, and none of the manag
   assert.doesNotMatch(html, /Cetak ulang/);
   assert.doesNotMatch(html, /name="packer"/, 'a packer hands nothing out');
   assert.doesNotMatch(html, /id="lbq"/, 'no search across every order');
+  assert.doesNotMatch(html, /class="pagehead"/, 'no title block');
+  assert.doesNotMatch(html, /<div class="strip">/, 'no queue counts');
   assert.match(html, /<table class="dense"/.test(html) ? /x^/ : /id="lb-rows"/, 'cards, not the table');
   const none = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments, packers: [packer] });
   assert.match(none, /Belum ada label yang ditugaskan kepadamu/);

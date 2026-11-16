@@ -600,7 +600,7 @@ export function shell({
   title, range, errors = {}, truncated = [], maxPerPlatform, shopeeShop, generatedAt,
   view, kpis = '', body = '', hideRangeControls = false, script = '', flash = null, scope = null,
   stale = false, staleSince = null, user = null, style = '', log = false, csrf = null,
-  readAt = null, settleFailed = false, actions = '',
+  readAt = null, settleFailed = false, actions = '', hideHead = false,
 }) {
   /*
    * How old the rows are, said out loud.
@@ -2120,14 +2120,14 @@ ${celebration(flash)}
     </div>
   </header>
 
-  <section class="pagehead">
+  ${hideHead ? '' : `<section class="pagehead">
     <div class="pagehead__t">
       <h1>${escape(title)}</h1>
       <p class="sub">${escape(shopeeShop?.shop_name ?? 'Treelogy Moringa')} &middot; ${escape(scope ?? range.label)} &middot; diperbarui ${escape(new Date(generatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: zoneName() }))} ${zoneLabel()}${
       dataAge ? ` &middot; <span class="${dataAge.tone}">${escape(dataAge.text)}</span>` : ''}</p>
     </div>
     ${rangeControls || nav.actions || actions ? `<div class="pagehead__acts">${rangeControls}${nav.actions}${actions}</div>` : ''}
-  </section>
+  </section>`}
 
   ${problems}
 
@@ -6397,7 +6397,10 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     hideRangeControls: true, scope: 'semua yang perlu dicetak',
     readAt, settleFailed,
     flash,
-    kpis: `
+    // A packer's page is their parcels and one button; the title and the counts are for
+    // the people who run the whole queue.
+    hideHead: isPacker,
+    kpis: isPacker ? '' : `
       <div class="strip">
         ${counts.changed > 0 ? stat('Perlu cetak ulang', String(counts.changed), 'stop') : ''}
         ${stat('Perlu dicetak', String(counts.needsPrint), counts.needsPrint > 0 ? 'ok' : '')}
