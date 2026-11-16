@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { shell, svg, escape, stockExportKit } from '../dashboard-page.js';
 import { PRODUCTS, familyOf } from '../master.js';
 import { GROUPS, recipeOf, REFUND_REASONS } from '../warehouse.js';
+import { figuresFor } from '../warehouse-reserve.js';
 import { can as allowed } from '../users.js';
 
 /**
@@ -24,8 +25,9 @@ const KIND = {
   in: ['Masuk', 'k-in'], out: ['Keluar', 'k-out'], count: ['Opname', 'k-count'],
 };
 
-export function renderWarehouse({ warehouse, csrf, flash, user, item = '', kind = '', stockExport = null, ...common }) {
+export function renderWarehouse({ warehouse, reserve = null, csrf, flash, user, item = '', kind = '', stockExport = null, ...common }) {
   const items = warehouse.items ?? {};
+  const claimedUnits = Object.values(reserve?.items ?? {}).reduce((n, q) => n + q, 0);
   const moves = [...(warehouse.moves ?? [])].reverse();
   const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
   const isToday = (at) => new Date(at * 1000 + 7 * 3600_000).toISOString().slice(0, 10) === today;
@@ -37,6 +39,9 @@ export function renderWarehouse({ warehouse, csrf, flash, user, item = '', kind 
   const kpis = `<section class="strip wh__strip" aria-label="Ringkasan gudang">
     <span class="stat"><span class="stat__n">${fmt(Object.keys(items).length)}</span><span class="stat__l">barang</span></span>
     <span class="stat"><span class="stat__n">${fmt(units)}</span><span class="stat__l">unit di rak</span></span>
+    <span class="stat"><span class="stat__n">${fmt(reserve?.orders ?? 0)}</span><span class="stat__l">pesanan perlu diproses</span></span>
+    <span class="stat"><span class="stat__n">${fmt(claimedUnits)}</span><span class="stat__l">unit sudah dipesan</span></span>
+    ${reserve?.unknown?.length ? `<span class="stat stat--warn" title="SKU di pesanan terbuka yang tidak punya isi gudang; beri isinya lewat Atur isi produk"><span class="stat__n">${fmt(reserve.unknown.length)}</span><span class="stat__l">SKU tak dikenali: ${escape(reserve.unknown.slice(0, 4).join(', '))}${reserve.unknown.length > 4 ? '…' : ''}</span></span>` : ''}
     <span class="stat"><span class="stat__n">${fmt(moves.filter((m) => isToday(m.at) && m.kind !== 'opening').length)}</span><span class="stat__l">gerakan hari ini</span></span>
     <span class="stat"><span class="stat__n">${fmt(new Set(moves.filter((m) => isToday(m.at) && m.kind === 'order').map((m) => m.ref)).size)}</span><span class="stat__l">pesanan keluar hari ini</span></span>
   </section>${refundRows(warehouse, { csrf, user, writer })}`;
@@ -46,10 +51,21 @@ export function renderWarehouse({ warehouse, csrf, flash, user, item = '', kind 
     // Bar length is relative to the fullest item in the same group, on a square-root scale
     // so a 7.473 mailerbox does not flatten every other bar to nothing.
     const level = top > 0 ? Math.round(Math.sqrt(Math.max(0, it.qty) / top) * 100) : 0;
+    /*
+     * Three figures, not one. "Di rak" is what is physically there and moves when a label
+     * comes out. "Perlu diproses" is what the paid orders waiting for a label will take.
+     * "Tersedia" is what can still be promised - it drops the moment an order arrives and
+     * comes back the moment one is cancelled, because it is read off the orders, not kept.
+     */
+    const f = figuresFor(it, reserve, code);
     return `<li class="wh__row ${TONE[it.group ?? 'pack'] ?? ''}"${writer ? ' tabindex="0" aria-expanded="false" title="Klik untuk mencatat barang masuk, keluar, atau opname"' : ''} data-code="${escape(code)}">
       <span class="wh__code mono">${escape(code)}</span>
       <span class="wh__name"><span class="wh__nm">${escape(it.name)}</span><span class="wh__bar" aria-hidden="true"><i style="width:${level}%"></i></span></span>
-      <span class="wh__qty"><b class="mono${it.qty <= 0 ? ' is-zero' : ''}">${fmt(it.qty)}</b><small>${escape(it.uom)}</small></span>
+      <span class="wh__figs">
+        <span class="wh__fig wh__fig--shelf" title="Di rak sekarang; berkurang saat label dicetak"><b class="mono${f.shelf <= 0 ? ' is-zero' : ''}">${fmt(f.shelf)}</b><small>di rak</small></span>
+        <span class="wh__fig wh__fig--claimed" title="Dipesan, belum dicetak labelnya"><b class="mono${f.claimed ? '' : ' is-zero'}">${fmt(f.claimed)}</b><small>diproses</small></span>
+        <span class="wh__fig wh__fig--avail" title="Di rak dikurangi yang sudah dipesan"><b class="mono${f.available < 0 ? ' is-short' : f.available <= 0 ? ' is-zero' : ''}">${fmt(f.available)}</b><small>tersedia ${escape(it.uom)}</small></span>
+      </span>
       <span class="wh__acts">
         <a class="wh__hist" href="?view=stock&amp;item=${encodeURIComponent(code)}#riwayat" title="Riwayat ${escape(it.name)}">${svg('history')}<span class="visually-hidden">Riwayat</span></a>
       </span>
@@ -98,7 +114,8 @@ export function renderWarehouse({ warehouse, csrf, flash, user, item = '', kind 
     const list = Object.entries(items).filter(([, it]) => (it.group ?? 'pack') === group).sort(([a], [b]) => a.localeCompare(b));
     if (!list.length) return '';
     const top = Math.max(0, ...list.map(([, it]) => it.qty));
-    return `<section class="wh__grp ${TONE[group]}"><h2 class="wh__h"><i class="wh__dot" aria-hidden="true"></i>${escape(label)}<span>${list.length}</span></h2>
+    return `<section class="wh__grp ${TONE[group]}"><h2 class="wh__h"><i class="wh__dot" aria-hidden="true"></i>${escape(label)}<span>${list.length}</span>
+        <span class="wh__caps" aria-hidden="true"><span>di rak</span><span>diproses</span><span>tersedia</span></span></h2>
       <ul class="wh__list">${list.map(([code, it]) => row(code, it, top)).join('')}</ul></section>`;
   }).join('');
 
@@ -180,7 +197,7 @@ export function renderWarehouse({ warehouse, csrf, flash, user, item = '', kind 
   </section>`;
 
   const body = `<div class="wh">
-    <p class="wh__intro">Stok fisik di gudang, per barang. Terpisah dari stok yang tampil di marketplace: halaman ini tidak pernah mengubah listing. Stok di sini berkurang saat pesanan masuk picklist (labelnya dicetak), sesuai isi tiap produk. Pesanan yang batal, diretur atau direfund setelah labelnya dicetak muncul di atas sampai tim memastikan barangnya kembali ke rak atau tidak.</p>
+    <p class="wh__intro">Stok fisik di gudang, per barang. Terpisah dari stok yang tampil di marketplace: halaman ini tidak pernah mengubah listing. Stok di sini berkurang saat pesanan masuk picklist (labelnya dicetak), sesuai isi tiap produk. Pesanan yang batal, diretur atau direfund setelah labelnya dicetak muncul di atas sampai tim memastikan barangnya kembali ke rak atau tidak. Tiga angka per barang: <b>di rak</b> adalah yang ada secara fisik dan berkurang saat label dicetak; <b>diproses</b> adalah yang sudah dipesan (dibayar) tapi labelnya belum dicetak; <b>tersedia</b> adalah selisihnya, berkurang begitu pesanan masuk dan kembali sendiri kalau pesanan dibatalkan atau diubah, karena dibaca langsung dari pesanan yang masih terbuka.</p>
     <div class="wh__cols"><div>${receive}${shelf}</div><div>${can}</div></div>
     ${history}
   </div>${kit ? kit.dialog : ''}`;
@@ -260,7 +277,21 @@ const STYLE = `
 .wh__h span{opacity:.6; letter-spacing:0}
 .wh__sub{margin:-.35rem 0 .75rem; font-size:.76rem; color:var(--dim)}
 .wh__list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column}
-.wh__row{display:grid; grid-template-columns:4.2rem minmax(0,1fr) 6rem auto; align-items:center; gap:.75rem; padding:.55rem .35rem; border-top:1px solid var(--line)}
+.wh__row{display:grid; grid-template-columns:4.2rem minmax(0,1fr) auto auto; align-items:center; gap:.75rem; padding:.55rem .35rem; border-top:1px solid var(--line)}
+.wh__figs{display:grid; grid-template-columns:repeat(3, 5.2rem); gap:.5rem; justify-items:end}
+.wh__fig{display:flex; flex-direction:column; align-items:flex-end; line-height:1.15}
+.wh__fig b{font-size:1.05rem; font-weight:600; font-variant-numeric:tabular-nums}
+.wh__fig b.is-zero{color:var(--dim)} .wh__fig b.is-short{color:var(--bad)}
+.wh__fig small{font-size:.62rem; color:var(--dim); white-space:nowrap; letter-spacing:.02em}
+.wh__fig--avail b{color:var(--good)} .wh__fig--avail b.is-zero{color:var(--dim)} .wh__fig--avail b.is-short{color:var(--bad)}
+.wh__fig--claimed b{color:var(--warn)} .wh__fig--claimed b.is-zero{color:var(--dim)}
+.wh__caps{display:grid; grid-template-columns:repeat(3, 5.2rem); gap:.5rem; margin-left:auto; font-size:.66rem; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); text-align:right}
+@media (max-width:640px){
+  .wh__row{grid-template-columns:4.2rem minmax(0,1fr) auto}
+  .wh__figs{grid-column:1 / -2; grid-template-columns:repeat(3, minmax(0,1fr)); justify-items:start; gap:.75rem; padding-left:.1rem}
+  .wh__fig{align-items:flex-start}
+  .wh__caps{display:none}
+}
 .wh__row:first-child{border-top:0}
 .wh__row[hidden]{display:none}
 .wh__code{font-size:.72rem; color:var(--tone, var(--dim)); justify-self:start; padding:.12rem .4rem; border-radius:6px; background:color-mix(in srgb, var(--tone, var(--line)) 12%, transparent)}

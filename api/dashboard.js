@@ -27,6 +27,7 @@ import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
 import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo } from '../src/label-assign.js';
+import { reserveFor } from '../src/warehouse-reserve.js';
 import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
 import { refreshOrders, refreshOneOrder, RESHIPS, diffOrder } from '../src/orders-refresh.js';
@@ -2323,11 +2324,15 @@ export default async function handler(req, res) {
     // edited on the products page.
     if (view === 'stock') {
       const warehouse = await cached('warehouse', 15_000, () => loadWarehouse(), SWR);
+      // What the paid, unprinted orders have claimed: read off the live worklist every
+      // time, never stored, so a cancel or an edit on any platform is reflected at once.
+      const open = await outstandingOrders().catch(() => ({ orders: [] }));
+      const reserve = reserveFor(warehouse, open.orders ?? []);
       const item = String(url.searchParams.get('item') ?? '').slice(0, 20);
       const kind = String(url.searchParams.get('kind') ?? '').slice(0, 10);
-      console.log(`dashboard/stock: gudang ${Object.keys(warehouse.items ?? {}).length} barang`);
+      console.log(`dashboard/stock: gudang ${Object.keys(warehouse.items ?? {}).length} barang, ${reserve.orders} pesanan menunggu`);
       send(200, renderWarehouse({
-        user, warehouse, item, kind, range, errors: {}, shopeeShop: null, generatedAt: Date.now(), csrf, flash,
+        user, warehouse, reserve, item, kind, range, errors: {}, shopeeShop: null, generatedAt: Date.now(), csrf, flash,
         stockExport: { today: businessToday(), first: FIRST_DAY, days: movementsByDay(warehouse) },
       }));
       return;
