@@ -42,3 +42,11 @@ test('the label page offers the download to those who run it, never to a packer'
   const packer = renderLabels({ ...base, user: { role: 'packer', status: 'active', email: 'p@t.com' }, isPacker: true });
   assert.doesNotMatch(packer, /label-export/);
 });
+
+test('the picklist still carries the stock download after the sheet became one component', async () => {
+  const { renderPicklist } = await import('../src/dashboard-page.js');
+  const html = renderPicklist({ picklist: { orderCount: 0, skuCount: 0, unitCount: 0, items: [], groups: [], rows: [] }, orders: [], range: {}, errors: {}, shopeeShop: null, generatedAt: 0, user: { role: 'owner', status: 'active', email: 'k@t.com' }, csrf: 't', stockExport: { today: '2026-11-16', first: '2026-10-06', days: {} } });
+  assert.match(html, /id="stock-export-open"/);
+  assert.match(html, /<dialog class="ex ix" id="stock-export"/);
+  assert.match(html, /name="dataset" value="inventory"/);
+});

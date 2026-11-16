@@ -3957,7 +3957,7 @@ export function renderPicklist({ picklist, orders = [], images = {}, batch = nul
     hideRangeControls: true, scope: batch ? `batch ${new Date(`${batch.date}T00:00:00Z`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' })} · tutup 15.00 WITA` : 'semua yang perlu dipetik',
     readAt, settleFailed,
     style: PICK_STYLE + (stockExport ? EXPORT_STYLE + STOCK_EXPORT_STYLE : ''),
-    script: PICK_SCRIPT + (stockExport ? STOCK_EXPORT_SCRIPT : ''),
+    script: PICK_SCRIPT + (stockExport ? exportScript(EXPORT_KINDS.inventory) : ''),
     actions: stockExport ? `<button class="exbtn exbtn--head" type="button" id="stock-export-open" aria-haspopup="dialog">${svg('export')}Export</button>` : '',
     kpis: `
       <div class="strip" id="pick-kpis">
@@ -3974,7 +3974,7 @@ export function renderPicklist({ picklist, orders = [], images = {}, batch = nul
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>
-        <div class="foot"><span>${picklist.orderCount} pesanan &middot; ${picklist.skuCount} SKU &middot; ${picklist.unitCount} unit</span>${isLive ? `<span class="pick__live" aria-live="polite">${svg('refresh')} diperbarui otomatis</span>` : ''}</div>`}</div>${stockExport ? stockExportDialog(stockExport) : ''}`,
+        <div class="foot"><span>${picklist.orderCount} pesanan &middot; ${picklist.skuCount} SKU &middot; ${picklist.unitCount} unit</span>${isLive ? `<span class="pick__live" aria-live="polite">${svg('refresh')} diperbarui otomatis</span>` : ''}</div>`}</div>${stockExport ? logExportDialog(EXPORT_KINDS.inventory, stockExport) : ''}`,
   });
 }
 
