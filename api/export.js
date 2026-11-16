@@ -4,7 +4,8 @@ import { dashboardError } from '../src/dashboard-page.js';
 import { buildExport, renderExport, exportFilename, DATASETS, DEFAULT_DATASET } from '../src/export/orders.js';
 import { COOKIE_NAME, isConfigured, parseCookies, authenticate, callerIp } from '../src/dashboard-auth.js';
 import { can, canView } from '../src/users.js';
-import { recordActivity } from '../src/audit.js';
+import { recordActivity, readActivity, activityDays, daysBetween } from '../src/audit.js';
+import { buildLabelLogExport, renderLabelLogExport, labelLogFilename, labelLogDays } from '../src/export/labels.js';
 import { loadWarehouse } from '../src/warehouse-run.js';
 import { businessToday } from '../src/clock.js';
 import { buildInventoryExport, renderInventoryExport, inventoryFilename, inventoryRange } from '../src/export/inventory.js';
@@ -48,6 +49,10 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
   if (url.searchParams.get('dataset') === 'inventory') {
     await inventoryExport({ req, res, url, user, fail });
+    return;
+  }
+  if (url.searchParams.get('dataset') === 'labels') {
+    await labelLogExport({ req, res, url, user, fail });
     return;
   }
 
@@ -138,6 +143,57 @@ async function inventoryExport({ req, res, url, user, fail }) {
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch (error) {
     console.error(`export: inventory gagal - ${error.message}`);
+    fail(502, 'Ekspor gagal', error.message);
+  }
+}
+
+/**
+ * The label print log, read off the activity log. `summary=1` answers the download
+ * sheet's question - how many parcels a day - without building a file.
+ */
+async function labelLogExport({ req, res, url, user, fail }) {
+  if (!can(user, 'orders') || user.role === 'packer' || !canView(user, 'labels')) {
+    fail(403, 'Tidak berwenang', 'Peran ini tidak bisa mengekspor log cetak label.');
+    return;
+  }
+  const today = businessToday();
+  const known = await activityDays().catch(() => []);
+  const first = known.length ? known[known.length - 1] : today;
+  // The activity log is read at most 92 days back; a range is clipped to that.
+  const floor = daysBetween(first, today).at(-1) ?? first;
+  const read = (from, to) => readActivity({ from, to, menu: 'labels' });
+  try {
+    if (url.searchParams.get('summary') === '1') {
+      const entries = await read(floor, today);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify({ first: floor, days: labelLogDays(entries) }));
+      return;
+    }
+    const format = url.searchParams.get('format') === 'csv' ? 'csv' : 'xlsx';
+    let { from, to } = inventoryRange({ from: url.searchParams.get('from'), to: url.searchParams.get('to'), today });
+    if (from < floor) from = floor;
+    const started = Date.now();
+    // Read from the start of the log so "Cetakan ke" counts earlier prints too.
+    const sheet = buildLabelLogExport(await read(floor, to), { from, to });
+    const { body, type } = renderLabelLogExport(sheet, format);
+    const filename = labelLogFilename(from, to, format);
+    console.log(`export: log label ${format}, ${sheet.rows.length} baris, ${from} s/d ${to} (${Date.now() - started}ms)`);
+    await recordActivity({
+      actor: user, ip: callerIp(req), menu: 'labels', action: 'export', verb: 'print', target: filename,
+      summary: `Mengekspor log cetak label sebagai ${format.toUpperCase()}: ${sheet.rows.length} baris, ${from} s/d ${to}`,
+      changes: [{ field: 'Rentang', to: `${from} s/d ${to}` }],
+    }).catch(() => {});
+    res.statusCode = 200;
+    res.setHeader('Content-Type', type);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Length', String(body.length));
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('X-Rows', String(sheet.rows.length));
+    res.end(req.method === 'HEAD' ? undefined : body);
+  } catch (error) {
+    console.error(`export: log label gagal - ${error.message}`);
     fail(502, 'Ekspor gagal', error.message);
   }
 }

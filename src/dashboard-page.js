@@ -3996,16 +3996,43 @@ export function renderPicklist({ picklist, orders = [], images = {}, batch = nul
  * The same dialog for the Stok page's movement history, so both doors open one file:
  * the dialog, its styles and its script, ready to drop into another page.
  */
-export function stockExportKit(data) {
+/**
+ * The download sheet the Stok page has, for any log that is a list of dated rows: a
+ * format, a range with quick presets, the file it will be, and what the range holds.
+ * `kind` names the instance so two can share a page; `stats` says how a day's counts
+ * read; `days` is either the counts inline or a URL the sheet fetches when it opens.
+ */
+const EXPORT_KINDS = {
+  inventory: {
+    id: 'stock-export', p: 'ix', dataset: 'inventory', file: 'Inventory', title: 'Ekspor stok gudang',
+    text: 'Riwayat barang masuk dan keluar gudang, satu baris per gerakan &mdash; format yang sama dengan sheet Inventory Movement.',
+    since: 'Gudang tercatat di dashboard sejak', emptyBefore: 'Gudang baru tercatat mulai', emptyIn: 'Tidak ada gerakan stok di rentang ini',
+    stats: [['', 'gerakan'], ['is-in', 'masuk', '+'], ['is-out', 'keluar', '&minus;']],
+  },
+  labels: {
+    id: 'label-export', p: 'lx', dataset: 'labels', file: 'Log Cetak Label', title: 'Ekspor log cetak label',
+    text: 'Setiap label yang dicetak, ditandai atau gagal &mdash; siapa, kapan, pesanan mana. Satu baris per pesanan per cetakan.',
+    since: 'Log cetak tercatat sejak', emptyBefore: 'Log cetak baru tercatat mulai', emptyIn: 'Tidak ada label yang dicetak di rentang ini',
+    stats: [['', 'label'], ['is-in', 'dicetak'], ['is-out', 'gagal']],
+  },
+};
+
+export function stockExportKit(data) { return exportKit('inventory', data); }
+/** Today on the house calendar, for a page that only has a clock in seconds. */
+const businessTodayForPage = (nowSeconds) => new Date((nowSeconds + 8 * 3600) * 1000).toISOString().slice(0, 10);
+export function labelExportKit(data) { return exportKit('labels', data); }
+
+function exportKit(kind, data) {
+  const k = EXPORT_KINDS[kind];
   return {
-    button: `<button class="exbtn" type="button" id="stock-export-open" aria-haspopup="dialog">${svg('export')}Download</button>`,
-    dialog: stockExportDialog(data),
+    button: `<button class="exbtn" type="button" id="${k.id}-open" aria-haspopup="dialog">${svg('export')}Download</button>`,
+    dialog: logExportDialog(k, data),
     style: EXPORT_STYLE + STOCK_EXPORT_STYLE,
-    script: STOCK_EXPORT_SCRIPT,
+    script: exportScript(k),
   };
 }
 
-function stockExportDialog({ today, first, days }) {
+function logExportDialog(k, { today, first, days, daysUrl = '' }) {
   const formats = [
     ['xlsx', 'Excel', 'Siap diolah & di-pivot'],
     ['csv', 'CSV', 'Teks untuk tool lain'],
@@ -4021,14 +4048,15 @@ function stockExportDialog({ today, first, days }) {
   const presets = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['last-month', 'Bulan lalu'], ['all', 'Semua']]
     .map(([key, label]) => `<button class="ix__q" type="button" data-preset="${key}" aria-pressed="${key === 'month'}">${label}</button>`).join('');
   const from = `${today.slice(0, 8)}01`;
+  const p = k.p;
 
-  return `<dialog class="ex ix" id="stock-export" aria-labelledby="ix-title" aria-describedby="ix-text">
-  <form class="ex__box ix__box" method="get" action="/api/export" data-download data-today="${escape(today)}" data-first="${escape(first)}">
-    <input type="hidden" name="dataset" value="inventory">
+  return `<dialog class="ex ix" id="${k.id}" aria-labelledby="${p}-title" aria-describedby="${p}-text">
+  <form class="ex__box ix__box" method="get" action="/api/export" data-download data-today="${escape(today)}" data-first="${escape(first)}"${daysUrl ? ` data-days-url="${escape(daysUrl)}"` : ''}>
+    <input type="hidden" name="dataset" value="${k.dataset}">
     <button class="ix__x" type="button" data-ix-close aria-label="Tutup">${svg('x')}</button>
     <span class="ex__ico" aria-hidden="true">${svg('export')}</span>
-    <h2 class="ex__title" id="ix-title" tabindex="-1" autofocus>Ekspor stok gudang</h2>
-    <p class="ex__text" id="ix-text">Riwayat barang masuk dan keluar gudang, satu baris per gerakan &mdash; format yang sama dengan sheet Inventory Movement.</p>
+    <h2 class="ex__title" id="${p}-title" tabindex="-1" autofocus>${k.title}</h2>
+    <p class="ex__text" id="${p}-text">${k.text}</p>
 
     <fieldset class="ex__set">
       <legend class="ex__leg">Format</legend>
@@ -4039,33 +4067,33 @@ function stockExportDialog({ today, first, days }) {
       <legend class="ex__leg">Rentang tanggal</legend>
       <div class="ix__quick" role="group" aria-label="Pilihan cepat">${presets}</div>
       <div class="ix__dates">
-        <label><span>Dari</span><input type="date" name="from" id="ix-from" value="${escape(from)}" max="${escape(today)}" required></label>
+        <label><span>Dari</span><input type="date" name="from" id="${p}-from" value="${escape(from)}" max="${escape(today)}" required></label>
         <span class="ix__arrow" aria-hidden="true">${svg('chevR')}</span>
-        <label><span>Sampai</span><input type="date" name="to" id="ix-to" value="${escape(today)}" max="${escape(today)}" required></label>
+        <label><span>Sampai</span><input type="date" name="to" id="${p}-to" value="${escape(today)}" max="${escape(today)}" required></label>
       </div>
-      <p class="ex__note">Gudang tercatat di dashboard sejak ${escape(new Date(`${first}T00:00:00Z`).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }))}.</p>
+      <p class="ex__note">${k.since} <span id="${p}-since">${escape(new Date(`${first}T00:00:00Z`).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }))}</span>.</p>
     </fieldset>
 
     <section class="ix__out" aria-live="polite">
-      <span class="ix__doc ix__doc--xlsx ix__doc--lg" id="ix-doc" aria-hidden="true"><i>XLSX</i></span>
+      <span class="ix__doc ix__doc--xlsx ix__doc--lg" id="${p}-doc" aria-hidden="true"><i>XLSX</i></span>
       <div class="ix__outb">
         <span class="ix__outl">Akan diunduh</span>
-        <b class="ix__name" id="ix-name">Inventory.xlsx</b>
-        <span class="ix__stats" id="ix-stats"></span>
+        <b class="ix__name" id="${p}-name">${escape(k.file)}.xlsx</b>
+        <span class="ix__stats" id="${p}-stats"></span>
       </div>
     </section>
-    <p class="ix__err" id="ix-err" role="alert" hidden></p>
+    <p class="ix__err" id="${p}-err" role="alert" hidden></p>
 
     <div class="ex__row">
       <button class="pu__no" type="button" data-ix-close>Batal</button>
-      <button class="pu__yes ix__go" type="submit" id="ix-go">
+      <button class="pu__yes ix__go" type="submit" id="${p}-go">
         <span class="ix__go-idle">${svg('export')}Unduh</span>
         <span class="ix__go-busy" aria-hidden="true"><i class="ix__spin"></i>Menyiapkan&hellip;</span>
         <span class="ix__go-done" aria-hidden="true">${svg('check')}Terunduh</span>
       </button>
     </div>
   </form>
-  <script type="application/json" id="ix-days">${JSON.stringify(days).replaceAll('<', '\\u003c')}</script>
+  <script type="application/json" id="${p}-days">${JSON.stringify(days ?? {}).replaceAll('<', '\\u003c')}</script>
 </dialog>`;
 }
 
@@ -4180,29 +4208,48 @@ const STOCK_EXPORT_STYLE = `
 }
 `;
 
-const STOCK_EXPORT_SCRIPT = `
+function exportScript(k) {
+  return `
 (function () {
-  var dialog = document.getElementById('stock-export');
-  var open = document.getElementById('stock-export-open');
+  var dialog = document.getElementById('${k.id}');
+  var open = document.getElementById('${k.id}-open');
   if (!dialog || !open) return;
   var form = dialog.querySelector('form');
-  var from = document.getElementById('ix-from');
-  var to = document.getElementById('ix-to');
-  var go = document.getElementById('ix-go');
-  var nameEl = document.getElementById('ix-name');
-  var stats = document.getElementById('ix-stats');
-  var doc = document.getElementById('ix-doc');
-  var err = document.getElementById('ix-err');
+  var from = document.getElementById('${k.p}-from');
+  var to = document.getElementById('${k.p}-to');
+  var go = document.getElementById('${k.p}-go');
+  var nameEl = document.getElementById('${k.p}-name');
+  var stats = document.getElementById('${k.p}-stats');
+  var doc = document.getElementById('${k.p}-doc');
+  var err = document.getElementById('${k.p}-err');
   // Read as attributes: the hidden input named "dataset" shadows form.dataset.
   var today = form.getAttribute('data-today');
   var first = form.getAttribute('data-first');
   var days = {};
-  try { days = JSON.parse(document.getElementById('ix-days').textContent) || {}; } catch (e) {}
+  try { days = JSON.parse(document.getElementById('${k.p}-days').textContent) || {}; } catch (e) {}
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var idNum = function (n) { return Number(n).toLocaleString('id-ID'); };
   var busy = false;
 
-  function show() { reset(); if (dialog.showModal) dialog.showModal(); else dialog.setAttribute('open', ''); }
+  // A log too costly to count on every page load says where its counts are; they are
+  // fetched the first time the sheet opens.
+  var daysUrl = form.getAttribute('data-days-url'), daysLoaded = !daysUrl;
+  function show() {
+    reset(); if (dialog.showModal) dialog.showModal(); else dialog.setAttribute('open', '');
+    if (!daysLoaded) {
+      daysLoaded = true; stats.innerHTML = '<span class="is-empty">Menghitung…</span>';
+      fetch(daysUrl, { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; })
+        .then(function (d) {
+          days = d.days || {};
+          if (d.first) {
+            first = d.first;
+            var since = document.getElementById('${k.p}-since');
+            if (since) since.textContent = new Date(first + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+          }
+          render();
+        }).catch(function () { render(); });
+    }
+  }
   function hide() { if (busy) return; if (dialog.close) dialog.close(); else dialog.removeAttribute('open'); }
   open.addEventListener('click', show);
   dialog.querySelectorAll('[data-ix-close]').forEach(function (b) { b.addEventListener('click', hide); });
@@ -4230,7 +4277,7 @@ const STOCK_EXPORT_SCRIPT = `
     else if (p[0] === q[0] && p[1] === q[1]) span = p[2] + ' - ' + day(q[0], q[1], q[2]);
     else if (p[0] === q[0]) span = p[2] + ' ' + MONTHS[p[1] - 1] + ' - ' + day(q[0], q[1], q[2]);
     else span = day(p[0], p[1], p[2]) + ' - ' + day(q[0], q[1], q[2]);
-    return 'Inventory ' + span + '.' + ext;
+    return ${JSON.stringify(k.file)} + ' ' + span + '.' + ext;
   }
   function format() { return form.querySelector('input[name=format]:checked').value; }
   // What the server will be asked for: in order and not past today. The days asked for
@@ -4256,10 +4303,10 @@ const STOCK_EXPORT_SCRIPT = `
       if (v) { n += v[0]; inU += v[1]; outU += v[2]; }
     }
     stats.innerHTML = n
-      ? '<span><b>' + idNum(n) + '</b> gerakan</span>'
-        + (inU ? '<span class="is-in"><b>+' + idNum(inU) + '</b> masuk</span>' : '')
-        + (outU ? '<span class="is-out"><b>&minus;' + idNum(outU) + '</b> keluar</span>' : '')
-      : '<span class="is-empty">' + (r.empty ? 'Gudang baru tercatat mulai ' + first.split('-').reverse().join('/') : 'Tidak ada gerakan stok di rentang ini') + '</span>';
+      ? '<span><b>' + idNum(n) + '</b> ${k.stats[0][1]}</span>'
+        + (inU ? '<span class="${k.stats[1][0]}"><b>${k.stats[1][2] || ''}' + idNum(inU) + '</b> ${k.stats[1][1]}</span>' : '')
+        + (outU ? '<span class="${k.stats[2][0]}"><b>${k.stats[2][2] || ''}' + idNum(outU) + '</b> ${k.stats[2][1]}</span>' : '')
+      : '<span class="is-empty">' + (r.empty ? '${k.emptyBefore} ' + first.split('-').reverse().join('/') : '${k.emptyIn}') + '</span>';
     stats.classList.remove('is-fresh'); void stats.offsetWidth; stats.classList.add('is-fresh');
     go.disabled = !n;
     err.hidden = true;
@@ -4293,7 +4340,7 @@ const STOCK_EXPORT_SCRIPT = `
     e.preventDefault();
     if (busy || go.disabled) return;
     var r = range(), ext = format();
-    var url = form.getAttribute('action') + '?dataset=inventory&format=' + ext + '&from=' + r.from + '&to=' + r.to;
+    var url = form.getAttribute('action') + '?dataset=${k.dataset}&format=' + ext + '&from=' + r.from + '&to=' + r.to;
     busy = true; go.setAttribute('data-state', 'busy'); err.hidden = true;
     fetch(url, { credentials: 'same-origin' }).then(function (res) {
       if (!res.ok) throw new Error(res.status === 401 ? 'Sesi berakhir - masuk lagi lalu ulangi.' : 'Server menolak (' + res.status + '). Coba lagi sebentar.');
@@ -4314,6 +4361,7 @@ const STOCK_EXPORT_SCRIPT = `
   render();
 })();
 `;
+}
 
 const PICK_STYLE = `
 .pick__confirm{display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin:0 0 1rem; padding:.9rem 1.1rem; border-radius:var(--radius); border:1px solid color-mix(in srgb, var(--brand) 45%, var(--line)); background:color-mix(in srgb, var(--brand) 9%, var(--panel))}
@@ -6631,9 +6679,15 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
       body: packerBody({ rows: candidates, bench, csrf, size: defaultSize, images }),
       script: PACKER_SCRIPT });
   }
+  // The print log, as the Stok page offers its movement log: a Download in the page head.
+  const logKit = can(user, 'orders') && user?.role !== 'packer'
+    ? labelExportKit({ today: businessTodayForPage(now), first: businessTodayForPage(now), days: {}, daysUrl: '/api/export?dataset=labels&summary=1' })
+    : null;
   return shell({ user,
     csrf,
     title: 'Cetak Label',
+    actions: logKit ? logKit.button : '',
+    style: logKit ? logKit.style : '',
     range, errors, shopeeShop, generatedAt,
     view: 'labels',
     hideRangeControls: true, scope: 'semua yang perlu dicetak',
@@ -6703,8 +6757,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
               : ''}
           </div>
           <input type="hidden" name="view" value="labels">
-        </form>`,
-    script: `${printScript}
+        </form>${logKit ? logKit.dialog : ''}`,
+    script: `${logKit ? logKit.script : ''}${printScript}
 (function () {
   var form = document.getElementById('lbform');
   var counter = document.getElementById('n');
