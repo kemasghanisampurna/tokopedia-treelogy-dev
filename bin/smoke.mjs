@@ -33,7 +33,9 @@ import { ALERTS_DOC } from '../src/alerts.js';
 const HOST = process.env.SMOKE_HOST || '127.0.0.1';
 const PORT = Number(process.env.SMOKE_PORT) || Number(process.env.PORT) || 3000;
 /** Generous: a cold page can read the database, and a deploy would rather wait than lie. */
-const TIMEOUT_MS = 20_000;
+// 45 s: the first orders page after a restart reads a week of orders from Sydney on a
+// cold cache, and 20 s failed healthy deploys even with one retry (16 Nov).
+const TIMEOUT_MS = 45_000;
 /** The stream has the emitter for this; five seconds is already the slow path. */
 const ALERT_WAIT_MS = 6_000;
 
