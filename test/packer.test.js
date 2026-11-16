@@ -38,20 +38,20 @@ const order = (id, buyer) => ({ channel: 'shopify', id, stage: 'to_ship', buyer,
 const base = { range: {}, errors: {}, shopeeShop: null, generatedAt: 0, csrf: 't', flash: null, sizes: { a6: { label: 'A6' } }, defaultSize: 'a6', arranged: { '#1': 1, '#2': 1 } };
 const assignments = applyAssign(null, ['shopify:#1'], packer, agas);
 
-test('the packer sees cards for their parcels, one button, and none of the management', () => {
-  const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer] });
-  assert.match(html, /class="pk__c" data-id="#1"/);
-  assert.match(html, /Organic Moringa Capsules \(90\) ×2/, 'what goes in the box');
-  assert.match(html, /pk__buyer">Wiwiek/);
-  assert.doesNotMatch(html, /Tandai sudah dicetak/);
-  assert.doesNotMatch(html, /Cetak ulang/);
-  assert.doesNotMatch(html, /name="packer"/, 'a packer hands nothing out');
-  assert.doesNotMatch(html, /id="lbq"/, 'no search across every order');
-  assert.doesNotMatch(html, /class="pagehead"/, 'no title block');
-  assert.doesNotMatch(html, /<div class="strip">/, 'no queue counts');
-  assert.match(html, /<table class="dense"/.test(html) ? /x^/ : /id="lb-rows"/, 'cards, not the table');
+test('the packer sees one row per parcel with its own print button, and none of the management', () => {
+  const images = { 'OMC-90-001': { thumb: 'https://img.example/caps90.jpg' } };
+  const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer], images, bench: { online: true, seenAt: Date.now(), agent: { name: 'Laptop packing' } } });
+  assert.match(html, /class="pq__row" data-key="shopify:#1"/);
+  assert.match(html, /data-print="shopify:#1"/, 'a print button per row');
+  assert.doesNotMatch(html, /type="checkbox" name="order"/, 'nothing to tick, one at a time');
+  assert.match(html, /"name":"Organic Moringa Capsules","variant":"90","qty":2,"sku":"OMC-90-001","img":"https:\/\/img.example\/caps90.jpg"/, 'what goes in the box, with its picture');
+  assert.match(html, /Laptop packing siap/);
+  assert.match(html, /<dialog class="pq__sheet"/);
+  assert.doesNotMatch(html, /Tandai sudah dicetak|Cetak ulang|name="packer"|id="lbq"|class="pagehead"|<div class="strip">/);
+  const offline = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer], bench: null });
+  assert.match(offline, /label dibuka sebagai PDF/);
   const none = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments, packers: [packer] });
-  assert.match(none, /Belum ada label yang ditugaskan kepadamu/);
+  assert.match(none, /Belum ada paket yang ditugaskan kepadamu/);
 });
 
 test('whoever may write gets the hand-out tools, the chip on the row and a pile per packer', () => {

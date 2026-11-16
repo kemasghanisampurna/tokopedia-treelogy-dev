@@ -2664,7 +2664,7 @@ export default async function handler(req, res) {
         showReprints, reprintFilter, now: Math.floor(Date.now() / 1000),
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
-        bench, assignments, packers, packerFilter, isPacker,
+        bench, assignments, packers, packerFilter, isPacker, images: isPacker ? await imagesByKey() : {},
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

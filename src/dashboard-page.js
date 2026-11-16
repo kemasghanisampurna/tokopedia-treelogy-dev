@@ -847,6 +847,45 @@ h1{margin:0; font-size:clamp(1.55rem,2.6vw,2.1rem); font-weight:600; letter-spac
 }
 .ok{color:var(--good)} .flag{color:var(--warn)} .stop{color:var(--bad)}
 ${DIRECT_PRINT_CSS}
+.pq{display:grid; gap:.75rem}
+.pq__bar{display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.2rem .1rem; font-size:.88rem; color:var(--muted)}
+.pq__status{display:inline-flex; align-items:center; gap:.5rem} .pq__count{font-variant-numeric:tabular-nums}
+.pq__dot{width:.55rem; height:.55rem; border-radius:50%; background:var(--dim)} .pq__dot.is-on{background:var(--good); box-shadow:0 0 8px var(--good)} .pq__dot.is-off{background:var(--bad)}
+.pq__list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
+.pq__row{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; padding:.9rem 1rem; border:1px solid var(--line); border-radius:14px; background:var(--panel); transition:opacity .2s, border-color .2s}
+.pq__row[data-state="done"]{opacity:.55} .pq__row[data-state="done"] .pq__go{background:transparent; color:var(--good); border:1px solid var(--good); box-shadow:none}
+.pq__main{display:grid; gap:.2rem; min-width:0}
+.pq__top{display:flex; align-items:center; gap:.5rem} .pq__id{font-weight:600}
+.pq__buyer{font-size:1.05rem; font-weight:600; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pq__sum{font-size:.85rem; color:var(--muted)}
+.pq__go{min-height:48px; min-width:96px; justify-content:center; font-size:1rem; cursor:pointer}
+.pq__go:disabled{cursor:default}
+.pq__sheet{width:min(560px, 100%); max-height:90dvh; margin:auto auto 0; padding:0; border:0; border-radius:20px 20px 0 0; background:var(--panel); color:var(--fg); box-shadow:0 -20px 60px rgba(0,0,0,.5)}
+@media (min-width:700px){.pq__sheet{margin:auto; border-radius:20px}}
+.pq__sheet:focus,.pq__sheet:focus-visible{outline:none}
+.pq__sheet::backdrop{background:rgba(0,0,0,.55); backdrop-filter:blur(2px)}
+.pq__sheet[open]{animation:pq-up .22s var(--ease-out, ease-out)}
+@keyframes pq-up{from{transform:translateY(24px); opacity:0} to{transform:none; opacity:1}}
+.pq__sheet-in{display:grid; gap:.9rem; padding:.75rem 1.25rem 1.25rem; overflow:auto; max-height:90dvh}
+.pq__grab{justify-self:center; width:40px; height:4px; border-radius:2px; background:var(--line)}
+.pq__title{margin:0; font-size:1.15rem; font-weight:600} .pq__sub{margin:-.6rem 0 0; color:var(--muted); font-size:.85rem}
+.pq__goods-list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
+.pq__good{display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:.9rem; padding:.55rem; border:1px solid var(--line); border-radius:12px; background:var(--panel-2)}
+.pq__good img,.pq__noimg{width:64px; height:64px; border-radius:10px; object-fit:cover; background:var(--line); display:block}
+.pq__gname{display:grid; gap:.1rem; min-width:0} .pq__gname b{font-weight:600; line-height:1.3} .pq__gname small{color:var(--muted); font-size:.82rem}
+.pq__qty{font-size:1.25rem; font-weight:700; padding-right:.3rem}
+.pq__steps{display:grid; gap:.45rem; padding:.75rem .9rem; border-radius:12px; background:color-mix(in srgb, var(--fg) 4%, transparent)}
+.pq__step{display:flex; align-items:center; gap:.6rem; color:var(--dim); font-size:.92rem}
+.pq__step i{width:18px; height:18px; border-radius:50%; border:2px solid var(--line); flex:none; display:grid; place-items:center}
+.pq__step.is-now{color:var(--fg)} .pq__step.is-now i{border-color:var(--warn); border-top-color:transparent; animation:pq-spin .8s linear infinite}
+.pq__step.is-done{color:var(--good)} .pq__step.is-done i{border-color:var(--good); background:var(--good)}
+.pq__step.is-done i::after{content:''; width:5px; height:9px; border:solid var(--panel); border-width:0 2px 2px 0; transform:translateY(-1px) rotate(45deg)}
+.pq__step.is-fail{color:var(--bad)} .pq__step.is-fail i{border-color:var(--bad)}
+@keyframes pq-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.pq__sheet[open],.pq__step.is-now i{animation:none}}
+.pq__err{margin:0; font-size:.9rem}
+.pq__close{min-height:48px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); font:inherit; font-weight:600; cursor:pointer}
+.pq__close:disabled{opacity:.45; cursor:default}
 .lb-to{display:inline-flex; align-items:center; gap:.25rem; color:var(--accent)} .lb-to .ico{width:.9rem; height:.9rem}
 .lb-assign{display:inline-flex; align-items:center; gap:.4rem} .lb-assign .dr__in{min-width:9rem}
 .lb-packers{gap:.4rem}
@@ -6127,7 +6166,153 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
  * unticking is the exception. The form posts to a separate endpoint that streams the PDF
  * straight into the browser's print preview.
  */
-export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
+/* ------------------------------------------------------------ the packer's page */
+
+/** A product's picture by its SKU, its master SKU, or its first part. */
+function photoFor(images, sku) {
+  const product = findProduct(sku);
+  const hit = images[sku] ?? (product && images[product.sku])
+    ?? (product?.components ?? []).map((c) => images[c.sku] ?? images[findProduct(c.sku)?.sku]).find(Boolean);
+  return hit?.thumb || hit?.url || '';
+}
+
+/**
+ * One parcel at a time.
+ *
+ * A packer prints the label of the parcel in front of them, packs it, and moves to the
+ * next. So the page is a list of orders, one row each, with its own Cetak button - no
+ * ticking, no batches. Pressing it opens a sheet that shows what goes into this box,
+ * with pictures, and follows the label until it is on paper.
+ */
+function packerBody({ rows, bench, csrf, size, images }) {
+  const online = Boolean(bench?.online);
+  const printerName = bench?.agent?.name || 'printer gudang';
+  const list = rows.map(({ order: o, readiness }) => {
+    const lines = (o.lines ?? []).filter((l) => (Number(l.qty) || 0) > 0);
+    const units = lines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
+    const goods = lines.map((l) => ({ name: l.name || l.sku, variant: l.variant || '', qty: Number(l.qty) || 0, sku: l.sku || '', img: photoFor(images, l.sku) }));
+    const key = `${o.channel}:${o.id}`;
+    const gone = Boolean(readiness.unavailable);
+    return `<li class="pq__row" data-key="${escape(key)}" data-state="todo">
+      <div class="pq__main">
+        <div class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></div>
+        <div class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</div>
+        <div class="pq__sum">${units} barang &middot; ${lines.length} produk${readiness.changed ? ' &middot; <span class="stop">data berubah</span>' : ''}</div>
+      </div>
+      <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
+        <span class="pq__go-t">Cetak</span>
+      </button>
+      <script type="application/json" class="pq__goods">${JSON.stringify(goods).replace(/</g, '\\u003c')}</script>
+    </li>`;
+  }).join('');
+
+  return `<div class="pq" id="pq" data-online="${online ? 1 : 0}" data-printer="${escape(printerName)}" data-csrf="${escape(csrf)}" data-size="${escape(size)}">
+    <div class="pq__bar">
+      <span class="pq__status"><i class="pq__dot ${online ? 'is-on' : 'is-off'}" aria-hidden="true"></i>${escape(online ? `${printerName} siap` : 'Printer gudang tidak aktif · label dibuka sebagai PDF')}</span>
+      <span class="pq__count">${rows.length} paket</span>
+    </div>
+    ${rows.length ? `<ul class="pq__list">${list}</ul>` : '<p class="empty">Belum ada paket yang ditugaskan kepadamu.</p>'}
+  </div>
+  <dialog class="pq__sheet" id="pq-sheet" aria-labelledby="pq-title">
+    <div class="pq__sheet-in">
+      <div class="pq__grab" aria-hidden="true"></div>
+      <h2 class="pq__title" id="pq-title">Isi paket</h2>
+      <p class="pq__sub mono" id="pq-order"></p>
+      <ul class="pq__goods-list" id="pq-goods"></ul>
+      <div class="pq__steps" role="status" aria-live="polite">
+        <span class="pq__step" data-step="1"><i></i>Menyiapkan label</span>
+        <span class="pq__step" data-step="2"><i></i><span id="pq-wait">Menunggu printer mencetak</span></span>
+        <span class="pq__step" data-step="3"><i></i>Sudah dicetak</span>
+      </div>
+      <p class="pq__err stop" id="pq-err" hidden></p>
+      <button class="pq__close" type="button" id="pq-close">Tutup</button>
+    </div>
+  </dialog>
+  <form method="post" action="/api/labels" target="_blank" id="pq-pdf" hidden>
+    <input type="hidden" name="csrf" value="${escape(csrf)}"><input type="hidden" name="size" value="${escape(size)}"><input type="hidden" name="order" value="">
+  </form>`;
+}
+
+const PACKER_SCRIPT = `
+(function () {
+  var root = document.getElementById('pq'); if (!root) return;
+  var sheet = document.getElementById('pq-sheet');
+  var goodsEl = document.getElementById('pq-goods'), orderEl = document.getElementById('pq-order');
+  var waitEl = document.getElementById('pq-wait'), errEl = document.getElementById('pq-err'), closeBtn = document.getElementById('pq-close');
+  var online = root.getAttribute('data-online') === '1', printer = root.getAttribute('data-printer');
+  var esc = function (t) { return String(t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var busy = false;
+
+  function step(n, failed) {
+    sheet.querySelectorAll('.pq__step').forEach(function (s) {
+      var k = Number(s.getAttribute('data-step'));
+      s.className = 'pq__step' + (k < n ? ' is-done' : k === n ? (failed ? ' is-fail' : ' is-now') : '');
+    });
+  }
+  function show(row) {
+    var goods = []; try { goods = JSON.parse(row.querySelector('.pq__goods').textContent); } catch (e) {}
+    orderEl.textContent = row.querySelector('.pq__id').textContent + ' · ' + row.querySelector('.pq__buyer').textContent;
+    goodsEl.innerHTML = goods.map(function (g) {
+      return '<li class="pq__good">' + (g.img ? '<img src="' + esc(g.img) + '" alt="" width="64" height="64" loading="eager" decoding="async">' : '<span class="pq__noimg" aria-hidden="true"></span>')
+        + '<span class="pq__gname"><b>' + esc(g.name) + '</b>' + (g.variant ? '<small>' + esc(g.variant) + '</small>' : '') + '</span>'
+        + '<span class="pq__qty mono">×' + g.qty + '</span></li>';
+    }).join('') || '<li class="dim">Isi paket tidak tercatat.</li>';
+    errEl.hidden = true; waitEl.textContent = 'Menunggu ' + printer + ' mencetak';
+    step(1); closeBtn.disabled = true;
+    if (typeof sheet.showModal === 'function') sheet.showModal(); else sheet.setAttribute('open', '');
+  }
+  function done(row, ok, message) {
+    busy = false; closeBtn.disabled = false;
+    if (ok) {
+      step(4);
+      row.setAttribute('data-state', 'done');
+      var b = row.querySelector('.pq__go'); b.disabled = true; b.querySelector('.pq__go-t').textContent = 'Dicetak';
+    } else {
+      errEl.textContent = message; errEl.hidden = false;
+    }
+  }
+  async function snapshot() {
+    var r = await fetch(location.pathname + '?view=labels&bench=1', { credentials: 'same-origin', cache: 'no-store' });
+    return r.ok ? r.json() : null;
+  }
+
+  root.addEventListener('click', async function (e) {
+    var btn = e.target.closest('[data-print]'); if (!btn || busy) return;
+    var row = btn.closest('.pq__row'), key = btn.getAttribute('data-print');
+    busy = true; show(row);
+    if (!online) {
+      // No agent on the bench: the label opens as a PDF, as the print dialog always did.
+      var f = document.getElementById('pq-pdf'); f.elements.order.value = key; f.submit();
+      step(3); waitEl.textContent = 'Label dibuka di tab baru';
+      return done(row, true);
+    }
+    try {
+      var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), size: root.getAttribute('data-size'), order: key, format: 'queue' });
+      var res = await fetch('/api/labels', { method: 'POST', body: body, credentials: 'same-origin' });
+      var out = await res.json();
+      if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
+      if (!out.pages) throw new Error((out.failures && out.failures[0] && out.failures[0].reason) || 'label tidak tersedia');
+      step(2);
+      var started = Date.now();
+      while (Date.now() - started < 180000) {
+        await new Promise(function (r) { setTimeout(r, Date.now() - started < 15000 ? 400 : 1500); });
+        var b = await snapshot().catch(function () { return null; }); if (!b) continue;
+        var job = (b.recent || []).filter(function (j) { return j.id === out.jobId; })[0]; if (!job) continue;
+        if (job.status === 'done') return done(row, true);
+        if (job.status === 'failed') throw new Error(job.error || 'printer gagal mencetak');
+      }
+      throw new Error('belum ada kabar dari ' + printer + ' - cek laptop di meja packing');
+    } catch (err) {
+      step(Number((sheet.querySelector('.pq__step.is-now') || {}).getAttribute ? sheet.querySelector('.pq__step.is-now').getAttribute('data-step') : 1), true);
+      done(row, false, 'Gagal: ' + err.message);
+    }
+  });
+  closeBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
+  sheet.addEventListener('cancel', function (e) { if (busy) e.preventDefault(); });
+})();
+`;
+
+export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, images = {}, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
   // took are a deliberate detour, not clutter in the daily view.
@@ -6389,6 +6574,12 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   const empty = showReprints ? shownBatches.length === 0 : candidates.length === 0;
   const searchBox = isPacker ? '' : search;
 
+  if (isPacker) {
+    return shell({ user, csrf, title: 'Label', range, errors, shopeeShop, generatedAt, view: 'labels',
+      hideRangeControls: true, scope: 'tugasmu', readAt, settleFailed, flash, hideHead: true, kpis: '',
+      body: packerBody({ rows: candidates, bench, csrf, size: defaultSize, images }),
+      script: PACKER_SCRIPT });
+  }
   return shell({ user,
     csrf,
     title: 'Cetak Label',
