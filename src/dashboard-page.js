@@ -4830,12 +4830,12 @@ export function renderManual({
   const wrongRow = (index) => `
     <div class="ln ln--wrong" data-wrong>
       <span class="ln__prod">
-        <select name="wsku" aria-label="Barang salah kirim baris ${index + 1}">
+        <select name="wsku" aria-label="Barang yang sudah dikirim baris ${index + 1}">
           <option value="">Pilih produk&hellip;</option>
           ${productOptions}
         </select>
       </span>
-      <input type="number" name="wqty" value="1" min="1" step="1" inputmode="numeric" aria-label="Kuantitas salah kirim">
+      <input type="number" name="wqty" value="1" min="1" step="1" inputmode="numeric" aria-label="Kuantitas barang yang sudah dikirim">
       <input type="number" name="wunitPrice" value="" min="0" step="1" inputmode="numeric" placeholder="Nilai" aria-label="Nilai satuan">
       <span class="ln__t" data-wrong-total>&mdash;</span>
       <button class="ln__x" type="button" data-remove-wrong aria-label="Hapus baris ${index + 1}">&times;</button>
@@ -4850,10 +4850,10 @@ export function renderManual({
    */
   const resendRef = edit ? '' : `
     <div class="fset" id="rsref" hidden>
-      <h3 class="fset__h">Pesanan yang salah kirim</h3>
+      <h3 class="fset__h">Pesanan asal</h3>
       <div class="flds flds--one">
         <div class="fld rsf">
-          <label for="resendFor">Order ID yang salah kirim</label>
+          <label for="resendFor">Order ID pesanan asal</label>
           <input id="resendFor" name="resendFor" maxlength="64" autocomplete="off" spellcheck="false"
                  role="combobox" aria-expanded="false" aria-controls="rs-picks" aria-autocomplete="list"
                  placeholder="mis. 2609ABCDE atau #11143">
@@ -4867,7 +4867,7 @@ export function renderManual({
 
   const resendFieldset = edit ? '' : `
     <div class="fset" id="rsfields" hidden>
-      <h3 class="fset__h">Barang salah kirim</h3>
+      <h3 class="fset__h">Barang yang sudah dikirim ke customer</h3>
       <p class="fld__hint rs__note">Barang di bawah ini yang terlanjur dikirim ke pelanggan. Sesuai SOP tidak ditarik kembali -
         jadi nilainya dibukukan ke Jurnal sebagai beban barang rusak, bukan sebagai penjualan. Barang yang ingin dikirim ulang
         di atas adalah penggantinya, dan itu gratis.</p>
@@ -5002,7 +5002,7 @@ export function renderManual({
               <div class="sum__r"><span>Ongkir</span><b data-sum-ship>Rp0</b></div>
               <div class="sum__r"><span>Termin</span><b data-sum-term>Net ${chosen.termDays}</b></div>
               <div class="sum__r"><span>Jatuh tempo</span><b data-sum-due>&mdash;</b></div>
-              <div class="sum__r sum__r--wrong" data-wrong-row hidden><span>Nilai salah kirim</span><b data-sum-wrong>Rp0</b></div>
+              <div class="sum__r sum__r--wrong" data-wrong-row hidden><span>Nilai barang terkirim</span><b data-sum-wrong>Rp0</b></div>
               <div class="sum__t"><span data-total-label>Total</span><b data-sum-total>Rp0</b></div>
               <input type="hidden" name="total" data-total-field value="0">
               <button class="sum__go" type="submit" id="mxgo" data-sell="${edit ? 'Simpan perubahan' : 'Simpan &amp; kirim ke Jurnal'}"
