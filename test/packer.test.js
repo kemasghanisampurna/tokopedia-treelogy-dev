@@ -98,3 +98,40 @@ test('a parcel the shelf cannot fill cannot be printed, and says what is missing
   const pulse = shelfPulse(shelf);
   assert.deepEqual(pulse.items, { [code]: { q: 1, n: 'Organic Moringa Capsules 90' } });
 });
+
+test('the packer page has two tabs: what is left to print, and what the printer produced', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const printedOne = order('#2', 'Sari');
+  const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer],
+    packerDone: [{ order: printedOne, entry: { at: now, by: packer.email, times: 2 } }] });
+  assert.match(html, /role="tablist"/);
+  assert.match(html, /id="pq-t-todo"[^>]*aria-selected="true"[^>]*>Belum dicetak<span class="pq__badge mono" id="pq-n-todo">1</);
+  assert.match(html, /id="pq-t-done"[^>]*>Sudah dicetak<span class="pq__badge mono" id="pq-n-done">1</);
+  // The printed one sits under today, with its time, opens its contents and cannot be pressed.
+  const done = html.slice(html.indexOf('id="pq-done"'), html.indexOf('id="pq-e-done"'));
+  assert.match(done, /Hari ini/);
+  assert.match(done, /#2/);
+  assert.match(done, /dicetak 2&times;/);
+  assert.match(done, /data-view/);
+  assert.doesNotMatch(done, /data-print=/);
+  const todo = html.slice(html.indexOf('id="pq-todo"'), html.indexOf('id="pq-e-todo"'));
+  assert.match(todo, /data-print="shopify:#1"/);
+  assert.doesNotMatch(todo, /#2/);
+  // Nothing handed out at all reads differently from everything printed.
+  const none = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments, packers: [packer] });
+  assert.match(none, /Belum ada paket yang ditugaskan kepadamu/);
+  const all = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments, packers: [packer], packerDone: [{ order: printedOne, entry: { at: now, times: 1 } }] });
+  assert.match(all, /Semua paketmu sudah dicetak/);
+});
+
+test('a print to the phone is put on record only when the phone confirms it', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
+  // The tspl road hands out a ticket and records nothing; confirm ok=1 marks, ok=0 logs a failure.
+  assert.match(src, /const deferred = form\.get\('format'\) === 'tspl';\s*if \(printedKeys\.length && !deferred\)/);
+  assert.match(src, /if \(!deferred\) await recordActivity/);
+  assert.match(src, /if \(ok\) \{\s*await markPrinted/);
+  const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments, packers: [packer] });
+  assert.match(page, /format: 'confirm'/);
+  assert.match(page, /printer belum tersambung/, 'not connected is said, not hidden behind a PDF');
+});

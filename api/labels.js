@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { markPrinted } from '../src/shopify/label.js';
 import { heldOrders, activeHold } from '../src/shopify/hold.js';
 import { warehouseSweep } from '../src/warehouse-run.js';
@@ -29,6 +30,28 @@ import { cachedPages, rememberPages, aheadOfTime, resolvers } from '../src/label
 // Shopify names an order "#10926", so the id charset carries the hash it prints with.
 const SELECTION = /^(tokopedia|tiktok_shop|shopee|shopify|manual):([A-Za-z0-9_#-]{1,64})$/;
 const MAX_LABELS = 100;
+
+/*
+ * A label sent to a phone's own printer is not printed until the phone says so.
+ *
+ * The bytes leave here long before paper leaves the printer, and the printer may never
+ * be reached at all - out of range, switched off, paired to another phone. Recording
+ * the print at render time took a parcel off the packer's list and off the shelf for a
+ * label that never came out. So a `tspl` answer carries a ticket, and the print is put
+ * on record only when the page comes back with `format=confirm` and the printer's
+ * verdict: sent, or failed and why. Kept in memory for half an hour; a confirm that
+ * outlives a restart falls back to the order keys it carries, without the fingerprints.
+ */
+const TICKET_MS = 30 * 60_000;
+const tickets = new Map();
+function keepTicket(entry) {
+  const now = Date.now();
+  for (const [id, t] of tickets) if (now - t.at > TICKET_MS) tickets.delete(id);
+  const id = randomUUID();
+  tickets.set(id, { ...entry, at: now });
+  return id;
+}
+export const _tickets = tickets;
 
 export default async function handler(req, res) {
   let wantsJson = false;
@@ -70,13 +93,18 @@ export default async function handler(req, res) {
   try {
     // A hundred selections of ~30 bytes each still fits comfortably.
     form = await readFormBody(req, 16384);
-    wantsJson = ['json', 'queue', 'tspl'].includes(form.get('format'));
+    wantsJson = ['json', 'queue', 'tspl', 'confirm'].includes(form.get('format'));
   } catch {
     fail(400, 'Permintaan terlalu besar', 'Pilih lebih sedikit pesanan sekaligus.');
     return;
   }
   if (!csrfValid(session, form.get('csrf'))) {
     fail(403, 'Permintaan ditolak', 'Token formulir tidak cocok. Muat ulang halaman dan coba lagi.');
+    return;
+  }
+
+  if (form.get('format') === 'confirm') {
+    await confirmPrint(form, user, req, res, fail);
     return;
   }
 
@@ -152,7 +180,9 @@ export default async function handler(req, res) {
     // or the order would ask to be printed again tomorrow.
     let unrecorded = '';
     const printedKeys = [...(sheet.printed ?? []), ...ahead.map((o) => `${o.channel}:${o.id}`)];
-    if (printedKeys.length) {
+    // To a phone's printer: nothing is on record until the phone says it printed.
+    const deferred = form.get('format') === 'tspl';
+    if (printedKeys.length && !deferred) {
       await markPrinted(printedKeys, { by: user.email, sigs: sheet.sigs ?? {} }).catch((error) => {
         console.warn(`labels: gagal mencatat cetakan Shopify - ${error.message}`);
         unrecorded = error.message;
@@ -164,7 +194,7 @@ export default async function handler(req, res) {
     console.log(`labels: ${sheet.pageCount} pages for ${chosen.length} orders at ${size}, ${sheet.failures.length} failed`);
     // Printing is not a write to any marketplace, but "who printed the labels for these
     // parcels, and when" is exactly the question asked when a parcel goes missing.
-    await recordActivity({
+    if (!deferred) await recordActivity({
       actor: user, ip: callerIp(req), menu: 'labels', action: 'print_labels', verb: 'print',
       target: `${chosen.length} pesanan`,
       summary: `Mencetak ${sheet.pageCount} label (${size}) untuk ${chosen.length} pesanan${sheet.failures.length ? `, ${sheet.failures.length} gagal` : ''}`,
@@ -200,7 +230,8 @@ export default async function handler(req, res) {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
-        res.end(JSON.stringify({ pages, failures: sheet.failures, unrecorded }));
+        const ticket = keepTicket({ by: user.email, keys: printedKeys, sigs: sheet.sigs ?? {}, size, failures: sheet.failures, chosen: chosen.map((o) => `${o.channel}:${o.id}`) });
+        res.end(JSON.stringify({ pages, failures: sheet.failures, ticket }));
         return;
       }
       const job = await enqueueJob({
@@ -252,4 +283,52 @@ export default async function handler(req, res) {
     console.error(`labels: ${error.message}`);
     fail(502, 'Gagal menyiapkan label', error.message);
   }
+}
+
+/**
+ * The phone's verdict on a `tspl` print: `ok=1` when every byte reached the printer,
+ * `ok=0` with the error when it did not. Only `ok=1` marks the labels printed, counts
+ * the goods off the shelf and writes "dicetak" to the log; a failure is logged as
+ * "gagal" and leaves the parcel where it was, waiting to be printed.
+ */
+async function confirmPrint(form, user, req, res, fail) {
+  const ok = form.get('ok') === '1';
+  const reason = String(form.get('error') ?? '').slice(0, 200) || 'printer tidak mencetak';
+  const ticket = tickets.get(String(form.get('ticket') ?? ''));
+  if (ticket && ticket.by !== user.email) { fail(403, 'Bukan cetakanmu', 'Tiket cetak ini milik orang lain.'); return; }
+  let keys = ticket?.keys ?? [];
+  if (!ticket) {
+    // Outlived a restart: the keys the page carries, held to what this person may print.
+    keys = form.getAll('order').map(String).filter((v) => SELECTION.test(v));
+    if (user.role === 'packer') {
+      const mine = (await loadAssignments().catch(() => ({ orders: {} }))).orders;
+      keys = keys.filter((k) => mine[k]?.to === user.email);
+    }
+  }
+  if (keys.length === 0) { fail(400, 'Tidak ada yang dicatat', 'Tiket cetak tidak dikenal.'); return; }
+  tickets.delete(String(form.get('ticket') ?? ''));
+  const failed = new Set((ticket?.failures ?? []).map((f) => `${f.channel}:${f.id}`));
+  let unrecorded = '';
+  if (ok) {
+    await markPrinted(keys, { by: user.email, sigs: ticket?.sigs ?? {} }).catch((error) => {
+      console.warn(`labels: gagal mencatat cetakan - ${error.message}`);
+      unrecorded = error.message;
+    });
+    if (unrecorded) { fail(502, 'Label tercetak, tapi gagal dicatat', unrecorded); return; }
+    void warehouseSweep();
+  }
+  console.log(`labels: HP ${user.email} ${ok ? 'mencetak' : 'gagal mencetak'} ${keys.length} label${ok ? '' : ` - ${reason}`}`);
+  await recordActivity({
+    actor: user, ip: callerIp(req), menu: 'labels', action: 'print_labels', verb: 'print',
+    target: `${keys.length} pesanan`,
+    summary: ok ? `Mencetak ${keys.length} label ke printer HP` : `Gagal mencetak ${keys.length} label ke printer HP: ${reason}`,
+    changes: [
+      ...keys.map((k) => ({ field: k.replace(':', ' '), to: ok ? 'dicetak' : 'gagal', ...(ok ? {} : { note: reason }) })),
+      ...[...failed].map((k) => ({ field: k.replace(':', ' '), to: 'gagal', note: (ticket.failures.find((f) => `${f.channel}:${f.id}` === k) || {}).reason })),
+    ],
+  }).catch(() => {});
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(JSON.stringify({ ok, recorded: keys }));
 }

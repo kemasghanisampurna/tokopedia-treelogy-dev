@@ -330,9 +330,21 @@ export function directPrintScript(printer) {
     } else if (m.type === 'dp:progress') {
       busy = true; say(m.text || 'Mengirim…', 'is-busy'); progress(m.frac || 0); ready();
     } else if (m.type === 'dp:done') {
+      var job = printing;
+      // Put on record only what the printer took: the server is told the verdict, and
+      // a row turns "dicetak" only once that is written down.
+      var verdict = job ? confirmPrint(job, !m.error, m.error) : Promise.resolve(null);
+      if (m.error) {
+        busy = false; progressOff(); printing = null;
+        say('Gagal: ' + m.error + ' · label belum dicetak, coba lagi', 'is-off'); ready();
+        return;
+      }
+      say('Mencatat…', 'is-busy');
+      verdict.then(function (err) {
       busy = false; progressOff();
-      if (m.error) { say('Gagal: ' + m.error, 'is-off'); }
-      else {
+      if (err) { say('Label terkirim ke printer, tapi gagal dicatat: ' + err, 'is-off'); printing = null; ready(); return; }
+      printing = job;
+      {
         var failed = (printing && printing.failures) || [];
         say(m.pages + ' label terkirim' + (failed.length ? ' · ' + failed.length + ' gagal: ' + failed.map(function (f) { return f.id; }).join(', ') : ''), failed.length ? 'is-busy' : 'is-on');
         // The print is on record server-side; take the printed rows off the list here.
@@ -348,8 +360,26 @@ export function directPrintScript(printer) {
         if (form) form.dispatchEvent(new Event('change'));
       }
       printing = null; ready();
+      });
     }
   });
+  async function confirmPrint(job, ok, error) {
+    var body = new URLSearchParams();
+    body.set('csrf', form ? (form.elements.csrf && form.elements.csrf.value) || '' : '');
+    body.set('format', 'confirm'); body.set('ticket', job.ticket || ''); body.set('ok', ok ? '1' : '0');
+    if (error) body.set('error', String(error).slice(0, 200));
+    job.orders.forEach(function (o) { body.append('order', o); });
+    for (var t = 0; t < 3; t++) {
+      try {
+        var r = await fetch('/api/labels', { method: 'POST', body: body, credentials: 'same-origin' });
+        if (r.ok) return null;
+        var o = await r.json().catch(function () { return {}; });
+        if (r.status < 500) return o.error || ('HTTP ' + r.status);
+      } catch (e) {}
+      await new Promise(function (res) { setTimeout(res, 800 * (t + 1)); });
+    }
+    return 'server tidak menjawab';
+  }
   host.postMessage({ type: 'dp:hello' }, location.origin);
   setTimeout(function () { if (!answered) outside(); }, 1500);
 
@@ -367,7 +397,7 @@ export function directPrintScript(printer) {
       var out = await res.json();
       if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
       if (!out.pages || !out.pages.length) throw new Error((out.failures && out.failures[0] && out.failures[0].reason) || 'label tidak tersedia');
-      printing = { orders: orders, failures: out.failures || [] };
+      printing = { orders: orders, failures: out.failures || [], ticket: out.ticket || '' };
       host.postMessage({ type: 'dp:print', tspl: out.pages }, location.origin);
     } catch (e) {
       busy = false; progressOff(); say('Gagal: ' + e.message, 'is-off'); ready();
@@ -715,6 +745,9 @@ export function hostScript(printer) {
       await send(jobs[j], function (f) { progress((before + f * jobs[j].length) / total, 'Mengirim ' + (j + 1) + '/' + jobs.length + '…'); });
       sent += jobs[j].length;
     }
+    // Honest about the end, too: a link that dropped while the last packets were in
+    // flight did not print them, whatever the writes said.
+    if (device && device.gatt && !device.gatt.connected) throw new Error('sambungan ke printer terputus sebelum label selesai terkirim');
     return jobs.length;
   }
   window.addEventListener('message', async function (e) {

@@ -2648,6 +2648,28 @@ export default async function handler(req, res) {
       const packers = (await listUsers().catch(() => [])).filter((u) => u.role === 'packer' && u.status === 'active').map((u) => ({ email: u.email, name: u.name || u.email }));
       const packerFilter = isPacker ? '' : String(url.searchParams.get('packer') ?? '').slice(0, 120);
       if (isPacker) data = { ...data, orders: assignedTo(assignments, data.orders, user.email) };
+      /*
+       * The packer's "Sudah dicetak" tab: their parcels whose label the printer actually
+       * produced (a phone print is on the ledger only once the phone confirmed it), over
+       * the last week. A parcel the courier took has left the worklist, so it is read
+       * back by id; one edited since is waiting to print again and stays off this list.
+       */
+      let packerDone = [];
+      if (isPacker) {
+        const since = Math.floor(Date.now() / 1000) - 7 * 86400;
+        const inList = new Map(data.orders.map((o) => [`${o.channel}:${o.id}`, o]));
+        const keys = Object.entries(assignments.orders ?? {})
+          .filter(([key, a]) => a?.to === user.email && printed[key] && !printed[key].stale && !printed[key].marked && printed[key].at >= since)
+          .map(([key]) => key);
+        const missing = keys.filter((k) => !inList.has(k)).map((k) => ({ channel: k.slice(0, k.indexOf(':')), id: k.slice(k.indexOf(':') + 1) }));
+        const fetched = missing.length ? await ordersByIds(missing).catch(() => []) : [];
+        for (const o of Array.isArray(fetched) ? fetched : []) inList.set(`${o.channel}:${o.id}`, o);
+        packerDone = keys
+          .map((key) => ({ order: inList.get(key), entry: printed[key] }))
+          .filter(({ order }) => order && labelReadiness(order, printed, arrangedNow).state !== 'needsPrint')
+          .sort((a, b) => b.entry.at - a.entry.at)
+          .slice(0, 150);
+      }
       else if (packerFilter === 'none') data = { ...data, orders: data.orders.filter((o) => !assignmentFor(assignments, o)) };
       else if (packerFilter) data = { ...data, orders: data.orders.filter((o) => assignmentFor(assignments, o)?.to === packerFilter) };
       const showReprints = !isPacker && url.searchParams.get('reprint') === '1';
@@ -2678,7 +2700,7 @@ export default async function handler(req, res) {
         showReprints, reprintFilter, now: Math.floor(Date.now() / 1000),
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
-        bench, assignments, packers, packerFilter, isPacker, images: isPacker ? await imagesByKey() : {},
+        bench, assignments, packers, packerFilter, isPacker, packerDone, images: isPacker ? await imagesByKey() : {},
         shelf: isPacker ? await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null) : null,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));

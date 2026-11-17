@@ -1,4 +1,4 @@
-import { businessToday, zoneLabel, zoneName, zoneForChannel, channelDate, BENCH_CHANNEL, ZONES } from './clock.js';
+import { businessToday, businessDate, offsetSeconds, zoneLabel, zoneName, zoneForChannel, channelDate, BENCH_CHANNEL, ZONES } from './clock.js';
 import { CHANNELS, STAGES, STAGE_META, MANUAL_CHANNEL, channelMeta, isMarketplace } from './omni.js';
 import { DATASETS, EXPORT_CHANNELS, EXPORT_PRODUCTS, PRODUCT_GROUPS, DEFAULT_DATASET } from './export/orders.js';
 import { PRESETS } from './range.js';
@@ -851,11 +851,38 @@ ${DIRECT_PRINT_CSS}
 .pq{display:grid; gap:.75rem}
 .pq__bar{display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.2rem .1rem; font-size:.88rem; color:var(--muted)}
 .pq__status{display:inline-flex; align-items:center; gap:.5rem; min-width:0} .pq__count{font-variant-numeric:tabular-nums; margin-left:auto}
-.pq__link{min-height:40px; padding:0 1rem; border-radius:999px; border:1px solid var(--brand); background:transparent; color:var(--fg); font:inherit; font-size:.88rem; font-weight:600; cursor:pointer}
+.pq__link{margin-left:auto; white-space:nowrap; min-height:40px; padding:0 1rem; border-radius:999px; border:1px solid var(--brand); background:transparent; color:var(--fg); font:inherit; font-size:.88rem; font-weight:600; cursor:pointer}
 .pq__dot{width:.55rem; height:.55rem; border-radius:50%; background:var(--dim); flex:none} .pq__dot.is-on{background:var(--good); box-shadow:0 0 8px var(--good)} .pq__dot.is-busy{background:var(--warn)} .pq__dot.is-off{background:var(--bad)}
 .pq__list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
 .pq__row{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; padding:.9rem 1rem; border:1px solid var(--line); border-radius:14px; background:var(--panel); transition:opacity .2s, border-color .2s}
-.pq__row[data-state="done"]{opacity:.55} .pq__row[data-state="done"] .pq__go{background:transparent; color:var(--good); border:1px solid var(--good); box-shadow:none}
+.pq__tabs{position:sticky; top:0; z-index:10; display:grid; grid-template-columns:1fr 1fr; padding:4px; border:1px solid var(--line); border-radius:14px; background:var(--panel); isolation:isolate}
+.pq__tab{position:relative; z-index:1; min-height:44px; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; padding:0 .6rem; border:0; border-radius:10px; background:transparent; color:var(--muted); font:inherit; font-size:.95rem; font-weight:600; cursor:pointer; transition:color .2s; -webkit-tap-highlight-color:transparent}
+.pq__tab[aria-selected="true"]{color:var(--fg)}
+.pq__tab:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.pq__badge{min-width:1.7rem; padding:.1rem .45rem; border-radius:999px; background:color-mix(in srgb, var(--fg) 8%, transparent); font-size:.8rem; text-align:center; font-variant-numeric:tabular-nums; transition:background .2s, color .2s}
+.pq__tab[aria-selected="true"] .pq__badge{background:color-mix(in srgb, var(--brand) 28%, transparent); color:var(--fg)}
+.pq__ink{position:absolute; z-index:0; top:4px; bottom:4px; left:4px; width:calc(50% - 4px); border-radius:10px; background:var(--panel-2); box-shadow:0 1px 3px rgba(0,0,0,.25), inset 0 0 0 1px var(--line); transition:transform .22s var(--ease-out, ease-out)}
+.pq__tabs[data-on="done"] .pq__ink{transform:translateX(100%)}
+.pq__panel{display:grid; gap:.6rem} .pq__panel[hidden]{display:none}
+.pq__empty{display:flex; align-items:center; justify-content:center; gap:.5rem; margin:0; padding:2.5rem 1rem; border:1px dashed var(--line); border-radius:14px; color:var(--muted); text-align:center}
+.pq__empty[hidden]{display:none} .pq__empty .ico{width:18px; height:18px; color:var(--good)}
+.pq__days{list-style:none; margin:0; padding:0; display:grid; gap:1.1rem}
+.pq__day{display:grid; gap:.5rem}
+.pq__dayh{display:flex; align-items:center; justify-content:space-between; margin:0; padding:0 .25rem; color:var(--muted); font-size:.78rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase}
+.pq__row--done{display:block; padding:0}
+.pq__row--done.is-new{animation:pq-in .3s var(--ease-out, ease-out)}
+@keyframes pq-in{from{opacity:0; transform:translateY(-6px)} to{opacity:1; transform:none}}
+.pq__open{width:100%; min-height:44px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; padding:.85rem 1rem; border:0; border-radius:14px; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; transition:background .2s}
+.pq__open:hover{background:color-mix(in srgb, var(--fg) 3%, transparent)}
+.pq__open:focus-visible{outline:2px solid var(--brand); outline-offset:-2px}
+.pq__open .pq__buyer,.pq__open .pq__sum{display:block}
+.pq__stamp{display:inline-flex; align-items:center; gap:.45rem; color:var(--good); font-size:.92rem; font-weight:600}
+.pq__tick{width:24px; height:24px; border-radius:50%; display:grid; place-items:center; background:color-mix(in srgb, var(--good) 18%, transparent)}
+.pq__tick .ico{width:14px; height:14px}
+.pq__acts{display:grid; grid-template-columns:1fr 1fr; gap:.6rem}
+.pq__acts:has(.pq__retry[hidden]){grid-template-columns:1fr}
+.pq__retry{min-height:48px; justify-content:center; cursor:pointer} .pq__retry[hidden]{display:none}
+.pq__steps[hidden]{display:none}
 .pq__main{display:grid; gap:.2rem; min-width:0}
 .pq__top{display:flex; align-items:center; gap:.5rem} .pq__id{font-weight:600}
 .pq__buyer{font-size:1.05rem; font-weight:600; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -889,7 +916,7 @@ ${DIRECT_PRINT_CSS}
 .pq__step.is-done i::after{content:''; width:5px; height:9px; border:solid var(--panel); border-width:0 2px 2px 0; transform:translateY(-1px) rotate(45deg)}
 .pq__step.is-fail{color:var(--bad)} .pq__step.is-fail i{border-color:var(--bad)}
 @keyframes pq-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion: reduce){.pq__sheet[open],.pq__step.is-now i{animation:none}}
+@media (prefers-reduced-motion: reduce){.pq__sheet[open],.pq__step.is-now i,.pq__row--done.is-new{animation:none} .pq__ink{transition:none}}
 .pq__err{margin:0; font-size:.9rem}
 .pq__close{min-height:48px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); font:inherit; font-weight:600; cursor:pointer}
 .pq__close:disabled{opacity:.45; cursor:default}
@@ -6239,13 +6266,59 @@ function photoFor(images, sku) {
  * ticking, no batches. Pressing it opens a sheet that shows what goes into this box,
  * with pictures, and follows the label until it is on paper.
  */
-function packerBody({ rows, bench, csrf, size, images, shelf = null }) {
+/** What goes into one box, for the sheet: name, variant, qty, picture. */
+function packGoods(o, images) {
+  const lines = (o.lines ?? []).filter((l) => (Number(l.qty) || 0) > 0);
+  const units = lines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
+  const goods = lines.map((l) => ({ name: l.name || l.sku, variant: l.variant || '', qty: Number(l.qty) || 0, sku: l.sku || '', img: photoFor(images, l.sku) }));
+  return { lines, units, goods, json: JSON.stringify(goods).replace(/</g, '\\u003c') };
+}
+
+const clockOf = (at) => new Date((at + offsetSeconds()) * 1000).toISOString().slice(11, 16);
+function dayHeading(day, today) {
+  if (day === today) return 'Hari ini';
+  const [y, m, d] = today.split('-').map(Number);
+  const yesterday = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  if (day === yesterday) return 'Kemarin';
+  const [yy, mm, dd] = day.split('-').map(Number);
+  return `${dd} ${['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'][mm - 1]} ${yy}`;
+}
+
+/**
+ * The packer's "Sudah dicetak" tab: what came out of the printer, newest first, under
+ * one heading per day. Read off the print ledger, so a row is here only once the
+ * printer said it printed - never because a label was merely prepared.
+ */
+function packerDoneList(done, images, today) {
+  if (!done.length) return '';
+  const days = new Map();
+  for (const item of done) {
+    const day = businessDate(item.entry.at);
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push(item);
+  }
+  return [...days].map(([day, items]) => `<li class="pq__day" data-day="${escape(day)}"><h3 class="pq__dayh">${escape(dayHeading(day, today))}<span class="mono">${items.length}</span></h3>
+    <ul class="pq__list">${items.map(({ order: o, entry }) => {
+      const { lines, units, json } = packGoods(o, images);
+      return `<li class="pq__row pq__row--done" data-state="done" data-key="${escape(`${o.channel}:${o.id}`)}">
+        <button class="pq__open" type="button" data-view aria-label="Lihat isi paket ${escape(o.id)}">
+          <span class="pq__main">
+            <span class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></span>
+            <span class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</span>
+            <span class="pq__sum">${units} barang &middot; ${lines.length} produk${entry.times > 1 ? ` &middot; dicetak ${entry.times}&times;` : ''}</span>
+          </span>
+          <span class="pq__stamp"><span class="pq__tick" aria-hidden="true">${svg('check')}</span><span class="mono">${clockOf(entry.at)}</span></span>
+        </button>
+        <script type="application/json" class="pq__goods">${json}</script>
+      </li>`;
+    }).join('')}</ul></li>`).join('');
+}
+
+function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, today = businessToday() }) {
   const online = Boolean(bench?.online);
   const printerName = bench?.agent?.name || 'printer gudang';
   const list = rows.map(({ order: o, readiness }) => {
-    const lines = (o.lines ?? []).filter((l) => (Number(l.qty) || 0) > 0);
-    const units = lines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
-    const goods = lines.map((l) => ({ name: l.name || l.sku, variant: l.variant || '', qty: Number(l.qty) || 0, sku: l.sku || '', img: photoFor(images, l.sku) }));
+    const { lines, units, json: goodsJson } = packGoods(o, images);
     const key = `${o.channel}:${o.id}`;
     // Nothing on the shelf to pack: no label, and the row says what is missing.
     // The page keeps holding `data-need` against the shelf as it moves (PACKER_SCRIPT).
@@ -6262,18 +6335,30 @@ function packerBody({ rows, bench, csrf, size, images, shelf = null }) {
       <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
         <span class="pq__go-t">${short.length ? 'Stok kosong' : 'Cetak'}</span>
       </button>
-      <script type="application/json" class="pq__goods">${JSON.stringify(goods).replace(/</g, '\\u003c')}</script>
+      <script type="application/json" class="pq__goods">${goodsJson}</script>
     </li>`;
   }).join('');
 
-  return `<div class="pq" id="pq" data-online="${online ? 1 : 0}" data-printer="${escape(printerName)}" data-csrf="${escape(csrf)}" data-size="${escape(size)}">
+  return `<div class="pq" id="pq" data-today="${escape(today)}" data-online="${online ? 1 : 0}" data-printer="${escape(printerName)}" data-csrf="${escape(csrf)}" data-size="${escape(size)}">
     <div class="pq__bar">
       <span class="pq__status"><i class="pq__dot ${online ? 'is-on' : ''}" id="pq-dot" aria-hidden="true"></i><span id="pq-state">${escape(online ? `${printerName} siap` : 'Memeriksa printer…')}</span></span>
       <button class="pq__link" type="button" id="pq-pair" hidden>Sambungkan printer</button>
-      <span class="pq__count">${rows.length} paket</span>
     </div>
-    ${rows.length ? `<ul class="pq__list">${list}</ul>` : '<p class="empty">Belum ada paket yang ditugaskan kepadamu.</p>'}
+    <div class="pq__tabs" role="tablist" aria-label="Status cetak">
+      <button class="pq__tab" type="button" role="tab" id="pq-t-todo" aria-controls="pq-p-todo" aria-selected="true" data-tab="todo">Belum dicetak<span class="pq__badge mono" id="pq-n-todo">${rows.length}</span></button>
+      <button class="pq__tab" type="button" role="tab" id="pq-t-done" aria-controls="pq-p-done" aria-selected="false" tabindex="-1" data-tab="done">Sudah dicetak<span class="pq__badge mono" id="pq-n-done">${done.length}</span></button>
+      <span class="pq__ink" aria-hidden="true"></span>
+    </div>
+    <section class="pq__panel" role="tabpanel" id="pq-p-todo" aria-labelledby="pq-t-todo">
+      <ul class="pq__list" id="pq-todo">${list}</ul>
+      <p class="pq__empty" id="pq-e-todo"${rows.length ? ' hidden' : ''}>${done.length ? `${svg('check')}<span>Semua paketmu sudah dicetak.</span>` : '<span>Belum ada paket yang ditugaskan kepadamu.</span>'}</p>
+    </section>
+    <section class="pq__panel" role="tabpanel" id="pq-p-done" aria-labelledby="pq-t-done" hidden>
+      <ul class="pq__days" id="pq-done">${packerDoneList(done, images, today)}</ul>
+      <p class="pq__empty" id="pq-e-done"${done.length ? ' hidden' : ''}><span>Belum ada label yang tercetak.</span></p>
+    </section>
   </div>
+  <template id="pq-tick">${svg('check')}</template>
   <dialog class="pq__sheet" id="pq-sheet" aria-labelledby="pq-title">
     <div class="pq__sheet-in">
       <div class="pq__grab" aria-hidden="true"></div>
@@ -6285,8 +6370,11 @@ function packerBody({ rows, bench, csrf, size, images, shelf = null }) {
         <span class="pq__step" data-step="2"><i></i><span id="pq-wait">Menunggu printer mencetak</span></span>
         <span class="pq__step" data-step="3"><i></i>Sudah dicetak</span>
       </div>
-      <p class="pq__err stop" id="pq-err" hidden></p>
-      <button class="pq__close" type="button" id="pq-close">Tutup</button>
+      <p class="pq__err stop" id="pq-err" role="alert" hidden></p>
+      <div class="pq__acts">
+        <button class="pq__close" type="button" id="pq-close">Tutup</button>
+        <button class="cta pq__retry" type="button" id="pq-retry" hidden>Coba lagi</button>
+      </div>
     </div>
   </dialog>
   <form method="post" action="/api/labels" target="_blank" id="pq-pdf" hidden>
@@ -6300,17 +6388,71 @@ const PACKER_SCRIPT = `
   var sheet = document.getElementById('pq-sheet');
   var goodsEl = document.getElementById('pq-goods'), orderEl = document.getElementById('pq-order');
   var waitEl = document.getElementById('pq-wait'), errEl = document.getElementById('pq-err'), closeBtn = document.getElementById('pq-close');
+  var retryBtn = document.getElementById('pq-retry'), stepsEl = sheet.querySelector('.pq__steps');
   var dot = document.getElementById('pq-dot'), stateEl = document.getElementById('pq-state'), pairBtn = document.getElementById('pq-pair');
+  var todoList = document.getElementById('pq-todo'), doneList = document.getElementById('pq-done');
+  var tabs = root.querySelector('.pq__tabs'), tickTpl = document.getElementById('pq-tick');
   var bench = root.getAttribute('data-online') === '1', benchName = root.getAttribute('data-printer');
+  var today = root.getAttribute('data-today');
   var esc = function (t) { return String(t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
-  var busy = false, pending = null;
+  var busy = false, busyRow = null, pending = null, retry = null;
+
+  /* ---- two tabs: still to print, and printed ---- */
+  function selectTab(name, focus) {
+    tabs.setAttribute('data-on', name);
+    ['todo', 'done'].forEach(function (n) {
+      var t = document.getElementById('pq-t-' + n), p = document.getElementById('pq-p-' + n), on = n === name;
+      t.setAttribute('aria-selected', on ? 'true' : 'false'); t.tabIndex = on ? 0 : -1; p.hidden = !on;
+      if (on && focus) t.focus();
+    });
+    try { sessionStorage.setItem('pq.tab', name); } catch (e) {}
+  }
+  tabs.addEventListener('click', function (e) { var t = e.target.closest('[data-tab]'); if (t) selectTab(t.getAttribute('data-tab')); });
+  tabs.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault(); selectTab(tabs.getAttribute('data-on') === 'todo' ? 'done' : 'todo', true);
+  });
+  var startTab = 'todo'; try { if (sessionStorage.getItem('pq.tab') === 'done') startTab = 'done'; } catch (e) {}
+  selectTab(startTab);
+  function recount() {
+    var nTodo = todoList.querySelectorAll('.pq__row').length, nDone = doneList.querySelectorAll('.pq__row').length;
+    document.getElementById('pq-n-todo').textContent = nTodo;
+    document.getElementById('pq-n-done').textContent = nDone;
+    var eTodo = document.getElementById('pq-e-todo');
+    eTodo.hidden = nTodo > 0;
+    if (!nTodo && nDone) eTodo.innerHTML = (tickTpl ? tickTpl.innerHTML : '') + '<span>Semua paketmu sudah dicetak.</span>';
+    document.getElementById('pq-e-done').hidden = nDone > 0;
+    doneList.querySelectorAll('.pq__day').forEach(function (d) { d.querySelector('.pq__dayh .mono').textContent = d.querySelectorAll('.pq__row').length; });
+  }
+  // Printed and on record: the row leaves "Belum dicetak" and heads today's printed list.
+  function moveToDone(row) {
+    var key = row.getAttribute('data-key'), now = new Date();
+    var hh = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+    var li = document.createElement('li');
+    li.className = 'pq__row pq__row--done is-new'; li.setAttribute('data-state', 'done'); li.setAttribute('data-key', key);
+    li.innerHTML = '<button class="pq__open" type="button" data-view aria-label="Lihat isi paket ' + esc(row.querySelector('.pq__id').textContent) + '">'
+      + '<span class="pq__main"><span class="pq__top">' + row.querySelector('.pq__top').innerHTML + '</span>'
+      + '<span class="pq__buyer">' + row.querySelector('.pq__buyer').innerHTML + '</span>'
+      + '<span class="pq__sum">' + row.querySelector('.pq__sum').innerHTML + '</span></span>'
+      + '<span class="pq__stamp"><span class="pq__tick" aria-hidden="true">' + (tickTpl ? tickTpl.innerHTML : '') + '</span><span class="mono">' + hh + '</span></span></button>';
+    li.appendChild(row.querySelector('.pq__goods').cloneNode(true));
+    var day = doneList.querySelector('.pq__day[data-day="' + today + '"]');
+    if (!day) {
+      day = document.createElement('li'); day.className = 'pq__day'; day.setAttribute('data-day', today);
+      day.innerHTML = '<h3 class="pq__dayh">Hari ini<span class="mono">0</span></h3><ul class="pq__list"></ul>';
+      doneList.insertBefore(day, doneList.firstChild);
+    }
+    day.querySelector('.pq__list').insertBefore(li, day.querySelector('.pq__list').firstChild);
+    row.remove(); recount();
+  }
 
   /*
    * Which road a press takes. The phone's own printer, through the host bar that keeps
    * the Bluetooth link open across pages (one phone, one printer); the bench agent if
-   * one is running; otherwise the label opens as a PDF.
+   * one is running; a PDF only on a phone that has no Bluetooth at all. A phone that
+   * could print but is not connected is told so - its parcel stays where it is.
    */
-  var host = null, hostLive = false, hostReady = false, hostName = '';
+  var host = null, hostReady = false, hostLive = false, hostName = '';
   try { if (window.parent !== window && window.parent.location.origin === location.origin) host = window.parent; } catch (e) { host = null; }
   function setState(text, tone) { stateEl.textContent = text; dot.className = 'pq__dot ' + (tone || ''); }
   if (host) {
@@ -6322,14 +6464,21 @@ const PACKER_SCRIPT = `
         if (!busy) setState(hostReady ? (hostName + (hostLive ? ' siap' : ' · tersambung saat mencetak')) : 'Ketuk Sambungkan di bilah atas', hostReady ? (hostLive ? 'is-on' : 'is-busy') : 'is-off');
       } else if (m.type === 'dp:done' && pending) {
         var p = pending; pending = null;
-        if (m.error) fail(p.row, m.error); else done(p.row);
+        if (m.error) {
+          // Nothing came out: said so, logged as a failure, and the parcel stays to print.
+          confirmPrint(p, false, m.error);
+          retry = function () { press(p.row); };
+          fail(p.row, m.error + '. Label belum tercetak, pesanan tetap di Belum dicetak.');
+          return;
+        }
+        record(p);
       }
     });
     host.postMessage({ type: 'dp:hello' }, location.origin);
   } else if (bench) {
     setState(benchName + ' siap', 'is-on');
   } else if (navigator.bluetooth) {
-    setState('Printer belum tersambung', '');
+    setState('Printer belum tersambung', 'is-off');
     pairBtn.hidden = false;
   } else {
     setState('Label dibuka sebagai PDF', '');
@@ -6344,7 +6493,6 @@ const PACKER_SCRIPT = `
    * later another packer's label may have taken the last pouch. So the shelf is asked
    * again every few seconds while the page is in view, at once when it comes back into
    * view, and once more right before a press - and every row is held against it again.
-   * A row that runs short turns "Stok kosong"; one whose goods came back turns "Cetak".
    * The server refuses a short print as well, so a missed beat never prints one.
    */
   function shortOf(row, items) {
@@ -6357,9 +6505,8 @@ const PACKER_SCRIPT = `
     return out;
   }
   function applyShelf(items) {
-    root.querySelectorAll('.pq__row').forEach(function (row) {
-      var st = row.getAttribute('data-state');
-      if (st === 'done' || (pending && pending.row === row) || (busy && row === busyRow)) return;
+    todoList.querySelectorAll('.pq__row').forEach(function (row) {
+      if (row.getAttribute('data-state') === 'done' || row === busyRow) return;
       var short = shortOf(row, items), note = row.querySelector('.pq__short'), btn = row.querySelector('.pq__go');
       row.classList.toggle('is-short', short.length > 0);
       row.setAttribute('data-state', short.length ? 'short' : 'todo');
@@ -6379,12 +6526,12 @@ const PACKER_SCRIPT = `
       .then(function (v) { shelfBusy = null; return v; });
     return shelfBusy;
   }
-  var busyRow = null;
   setInterval(function () { if (document.visibilityState === 'visible') pullShelf(); }, 4000);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') pullShelf(); });
   window.addEventListener('focus', function () { if (Date.now() - shelfAt > 1500) pullShelf(); });
   window.addEventListener('pageshow', function () { pullShelf(); });
 
+  /* ---- the sheet ---- */
   function step(n, failed) {
     sheet.querySelectorAll('.pq__step').forEach(function (s) {
       var k = Number(s.getAttribute('data-step'));
@@ -6393,7 +6540,8 @@ const PACKER_SCRIPT = `
   }
   var current = 1;
   function go(n) { current = n; step(n); }
-  function show(row, who) {
+  function open() { if (!sheet.open) { if (typeof sheet.showModal === 'function') sheet.showModal(); else sheet.setAttribute('open', ''); } }
+  function fillGoods(row) {
     var goods = []; try { goods = JSON.parse(row.querySelector('.pq__goods').textContent); } catch (e) {}
     orderEl.textContent = row.querySelector('.pq__id').textContent + ' · ' + row.querySelector('.pq__buyer').textContent;
     goodsEl.innerHTML = goods.map(function (g) {
@@ -6401,18 +6549,31 @@ const PACKER_SCRIPT = `
         + '<span class="pq__gname"><b>' + esc(g.name) + '</b>' + (g.variant ? '<small>' + esc(g.variant) + '</small>' : '') + '</span>'
         + '<span class="pq__qty mono">×' + g.qty + '</span></li>';
     }).join('') || '<li class="dim">Isi paket tidak tercatat.</li>';
-    errEl.hidden = true; waitEl.textContent = 'Menunggu ' + who + ' mencetak';
+  }
+  function show(row, who) {
+    fillGoods(row);
+    stepsEl.hidden = false; errEl.hidden = true; retryBtn.hidden = true; retry = null;
+    waitEl.textContent = 'Menunggu ' + who + ' mencetak';
     go(1); closeBtn.disabled = true;
-    if (typeof sheet.showModal === 'function') sheet.showModal(); else sheet.setAttribute('open', '');
+    open();
+  }
+  // A printed parcel, opened from "Sudah dicetak": its contents and when, nothing to press.
+  function view(row) {
+    fillGoods(row);
+    var t = row.querySelector('.pq__stamp .mono');
+    orderEl.textContent += t ? ' · dicetak ' + t.textContent : '';
+    stepsEl.hidden = true; errEl.hidden = true; retryBtn.hidden = true; closeBtn.disabled = false;
+    open();
   }
   function done(row) {
     busy = false; busyRow = null; closeBtn.disabled = false; step(4);
-    row.setAttribute('data-state', 'done');
-    var b = row.querySelector('.pq__go'); b.disabled = true; b.querySelector('.pq__go-t').textContent = 'Dicetak';
+    moveToDone(row);
   }
   function fail(row, message) {
     busy = false; busyRow = null; closeBtn.disabled = false; step(current, true);
     errEl.textContent = 'Gagal: ' + message; errEl.hidden = false;
+    retryBtn.hidden = !retry;
+    if (stateEl && host && !hostReady) setState('Printer belum tersambung', 'is-off');
     pullShelf();
   }
   async function fetchLabel(key, format) {
@@ -6422,25 +6583,48 @@ const PACKER_SCRIPT = `
     if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
     return out;
   }
+  // The printer's verdict, put on record. Only a yes marks the label printed.
+  async function confirmPrint(p, ok, error) {
+    var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), format: 'confirm', ticket: p.ticket || '', ok: ok ? '1' : '0', order: p.key });
+    if (error) body.set('error', String(error).slice(0, 200));
+    for (var t = 0; t < 3; t++) {
+      try {
+        var r = await fetch('/api/labels', { method: 'POST', body: body, credentials: 'same-origin' });
+        if (r.ok) return null;
+        var o = await r.json().catch(function () { return {}; });
+        if (r.status < 500) return o.error || ('HTTP ' + r.status);
+      } catch (e) {}
+      await new Promise(function (res) { setTimeout(res, 800 * (t + 1)); });
+    }
+    return 'server tidak menjawab';
+  }
+  async function record(p) {
+    var err = await confirmPrint(p, true);
+    if (!err) return done(p.row);
+    // The label is on paper but not on record: try the record again, never the print.
+    retry = function () { busy = true; busyRow = p.row; closeBtn.disabled = true; errEl.hidden = true; retryBtn.hidden = true; go(2); record(p); };
+    fail(p.row, 'label sudah keluar dari printer, tapi belum tercatat (' + err + '). Ketuk Coba lagi untuk mencatat.');
+  }
   async function snapshot() {
     var r = await fetch(location.pathname + '?view=labels&bench=1', { credentials: 'same-origin', cache: 'no-store' });
     return r.ok ? r.json() : null;
   }
 
-  root.addEventListener('click', async function (e) {
-    var btn = e.target.closest('[data-print]'); if (!btn || busy) return;
-    var row = btn.closest('.pq__row'), key = btn.getAttribute('data-print');
-    busy = true; busyRow = row;
+  async function press(row) {
+    if (busy) return;
+    var key = row.getAttribute('data-key');
+    busy = true; busyRow = row; retry = function () { press(row); };
     try {
       // The shelf as it is now, not as it was when the page was drawn.
       var items = await pullShelf();
-      if (items && shortOf(row, items).length) { busy = false; busyRow = null; return; }
-      if (host && hostReady) {
+      if (items && shortOf(row, items).length) { busy = false; busyRow = null; applyShelf(items); if (sheet.open) sheet.close(); return; }
+      if (host) {
+        show(row, hostName || 'printer');
+        if (!hostReady) throw new Error('printer belum tersambung. Ketuk Sambungkan di bilah atas, lalu Coba lagi');
         // The phone's printer: the server sends the label ready-made, the host sends it on.
-        show(row, hostName);
         var out = await fetchLabel(key, 'tspl');
         if (!out.pages || !out.pages.length) throw new Error((out.failures && out.failures[0] && out.failures[0].reason) || 'label tidak tersedia');
-        go(2); pending = { row: row };
+        go(2); pending = { row: row, key: key, ticket: out.ticket || '' };
         host.postMessage({ type: 'dp:print', tspl: out.pages }, location.origin);
         return;
       }
@@ -6459,19 +6643,31 @@ const PACKER_SCRIPT = `
         }
         throw new Error('belum ada kabar dari ' + benchName);
       }
-      // No printer to talk to: the label opens as a PDF, as the print dialog always did.
+      if (navigator.bluetooth) {
+        show(row, 'printer');
+        throw new Error('printer belum tersambung. Ketuk Sambungkan printer di atas, lalu cetak lagi');
+      }
+      // No Bluetooth on this phone at all: the label opens as a PDF.
       show(row, 'kamu');
       var f = document.getElementById('pq-pdf'); f.elements.order.value = key; f.submit();
       go(3); waitEl.textContent = 'Label dibuka di tab baru';
       done(row);
     } catch (err) { pending = null; fail(row, err.message); }
+  }
+
+  root.addEventListener('click', function (e) {
+    var v = e.target.closest('[data-view]');
+    if (v) { if (!busy) view(v.closest('.pq__row')); return; }
+    var btn = e.target.closest('[data-print]'); if (!btn || busy) return;
+    press(btn.closest('.pq__row'));
   });
+  retryBtn.addEventListener('click', function () { var r = retry; if (r && !busy) r(); });
   closeBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
   sheet.addEventListener('cancel', function (e) { if (busy) e.preventDefault(); });
 })();
 `;
 
-export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, images = {}, shelf = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
+export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, packerDone = [], images = {}, shelf = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
   // took are a deliberate detour, not clutter in the daily view.
@@ -6737,7 +6933,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   if (isPacker) {
     return shell({ user, csrf, title: 'Label', range, errors, shopeeShop, generatedAt, view: 'labels',
       hideRangeControls: true, scope: 'tugasmu', readAt, settleFailed, flash, hideHead: true, kpis: '',
-      body: packerBody({ rows: candidates, bench, csrf, size: defaultSize, images, shelf }),
+      body: packerBody({ rows: candidates, done: packerDone, bench, csrf, size: defaultSize, images, shelf }),
       script: PACKER_SCRIPT });
   }
   // The print log, as the Stok page offers its movement log: a Download in the page head.
