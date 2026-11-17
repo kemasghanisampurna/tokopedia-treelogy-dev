@@ -6835,9 +6835,10 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
       && (!readiness.unavailable || (showReprints && printedEntry(printed, order))))
     .filter(({ readiness }) => showReprints || !onlyChanged || readiness.changed)
     .map((row, index) => ({ row, index }))
-    // A packer works down the pile as it was handed over, newest hand-out on top.
+    // A packer works down the pile in the order it was handed over: the longest-waiting
+    // hand-out on top, a fresh one joins at the bottom.
     .sort((a, b) => (isPacker
-      ? (Number(b.row.assigned?.at) || 0) - (Number(a.row.assigned?.at) || 0)
+      ? (Number(a.row.assigned?.at) || 0) - (Number(b.row.assigned?.at) || 0)
       : (showReprints ? 0 : Number(Boolean(b.row.readiness.changed)) - Number(Boolean(a.row.readiness.changed)))) || a.index - b.index)
     .map(({ row }) => row);
   /*
