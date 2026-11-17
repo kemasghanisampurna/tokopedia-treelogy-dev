@@ -234,9 +234,12 @@ test('the order that went wrong is asked for before anything that is read off it
   assert.ok(at('id="rsref"') > head('Sumber'), 'sumber tetap yang pertama ditanya');
   assert.ok(at('id="rsref"') < head('Detail'), 'referensi di atas detail');
   assert.ok(at('id="rsref"') < head('Pelanggan'), 'referensi di atas pelanggan');
-  assert.ok(at('id="rsref"') < head('Produk'), 'referensi di atas produk');
+  // The product heading carries an icon and a badge, so its words sit in their own span.
+  const products = at('data-lines-h>Produk<');
+  assert.ok(products > 0, 'judul produk ada');
+  assert.ok(at('id="rsref"') < products, 'referensi di atas produk');
   // The goods that went out wrongly stay with the other product rows, where they belong.
-  assert.ok(at('id="rsfields"') > head('Produk'));
+  assert.ok(at('id="rsfields"') > products);
 });
 
 /* ------------------------------------------------- never posted as a sale */
