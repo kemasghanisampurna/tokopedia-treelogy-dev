@@ -492,7 +492,7 @@ export function hostScript(printer) {
   function usable() { return !!device; }
   function holdThenRelease() {}
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && device && !device.gatt.connected && !busy) attach(device, 2).catch(function () {});
+    if (!document.hidden && device && !(ch && device.gatt.connected)) { linkTry = 0; keepLink(device); }
   });
   window.addEventListener('pagehide', function () { releasing = true; try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch (e) {} });
 
@@ -539,13 +539,44 @@ export function hostScript(printer) {
       ch = null;
       // Let go on purpose: nothing to chase. Dropped mid-print: get it back now.
       if (releasing) { releasing = false; ready(); return; }
-      // Taken back at once, quietly: the next press should find the link already open.
-      say('Menyambung lagi…', 'is-busy'); ready();
-      sleep(busy ? 0 : 800).then(function () { return attach(dev, busy ? 3 : 2); })
-        .catch(function () { say('Printer tidak terjangkau · disambung lagi saat mencetak', 'is-off'); ready(); });
+      // Taken back at once, quietly, and kept being taken back: the next press should
+      // find the link already open.
+      say('Menyambung ulang ke ' + (dev.name || printer.model) + '…', 'is-busy'); ready();
+      if (!busy) { linkTry = 0; keepLink(dev); }
     });
   }
-  async function attach(dev, tries) {
+  /*
+   * Once connected, connected for good. A printer that naps, a phone that locks, a
+   * walk out of range: the link drops, and this keeps reaching for it - at once, then
+   * every few seconds, never more than ten apart - until it is back. It does not give
+   * up and ask for a tap; it says it is still trying. Paused while the page is hidden
+   * (and resumed the moment it is looked at), and never while a print holds the link.
+   */
+  var linkTimer = null, linkTry = 0, linkSince = 0, linking = null;
+  function keepLink(dev) {
+    if (linkTimer || releasing || !dev) return;
+    if (!linkSince) linkSince = Date.now();
+    var wait = linkTry === 0 ? 0 : Math.min(10000, 1000 * Math.pow(2, Math.min(linkTry - 1, 4)));
+    linkTimer = setTimeout(function () {
+      linkTimer = null;
+      if (ch && dev.gatt.connected) { linkTry = 0; linkSince = 0; return; }
+      if (document.hidden) return;
+      if (busy) { keepLink(dev); return; }
+      attach(dev, 1).then(function () { linkTry = 0; linkSince = 0; }, function () {
+        linkTry += 1;
+        var long = Date.now() - linkSince > 20000;
+        say(long ? 'Printer tidak terjangkau · pastikan menyala & dekat HP · terus mencoba…' : 'Menyambung ulang ke ' + (dev.name || printer.model) + '…', long ? 'is-off' : 'is-busy');
+        ready(); keepLink(dev);
+      });
+    }, wait);
+  }
+  // One attempt at a time: the keeper and a print reaching for the link share it.
+  function attach(dev, tries) {
+    if (linking) return linking;
+    linking = attachNow(dev, tries).then(function (v) { linking = null; return v; }, function (e) { linking = null; throw e; });
+    return linking;
+  }
+  async function attachNow(dev, tries) {
     var server = null, err = null;
     for (var t = 0; t < (tries || 1) && !server; t++) {
       try { server = await dev.gatt.connect(); } catch (e) { err = e; await sleep(600 * (t + 1)); }
@@ -586,7 +617,7 @@ export function hostScript(printer) {
     if (!device) throw new Error('printer belum dipilih - ketuk Sambungkan di bilah atas');
     say('Menyambung ke printer…', 'is-busy'); ready();
     try { await attach(device, 4); }
-    catch (e) { throw new Error('printer mati atau di luar jangkauan - nyalakan, lalu coba lagi'); }
+    catch (e) { linkTry = 1; keepLink(device); throw new Error('printer mati atau di luar jangkauan - nyalakan, lalu coba lagi'); }
   }
   async function choose() {
     say('Pilih printer di daftar…', 'is-busy');
@@ -606,20 +637,23 @@ export function hostScript(printer) {
       say('Menyambung ke ' + (known.name || printer.model) + '…', 'is-busy'); ready();
       wire(known);
       try { await attach(known, 2); return; } catch (e) {}
+      // Not there yet: keep reaching for it, and jump the queue the moment it is heard.
       if (known.watchAdvertisements) {
-        var done = false;
         known.addEventListener('advertisementreceived', function () {
-          if (done) return; done = true;
-          attach(known, 2).catch(function () { say('Printer tidak merespons. Ketuk Sambungkan.', 'is-off'); ready(); });
+          if (ch && known.gatt.connected) return;
+          if (linkTimer) { clearTimeout(linkTimer); linkTimer = null; }
+          linkTry = 0; keepLink(known);
         });
-        await known.watchAdvertisements();
-        say('Menunggu printer menyala…', 'is-busy');
-      } else { say('Printer tidak terjangkau. Ketuk Sambungkan.', 'is-off'); }
+        known.watchAdvertisements().catch(function () {});
+      }
+      linkTry = 1; keepLink(known);
+      say('Menyambung ulang ke ' + (known.name || printer.model) + '…', 'is-busy');
     } catch (e) { say('Ketuk Sambungkan untuk memilih printer.', ''); }
     ready();
   }
   connectBtn.addEventListener('click', function () {
-    if (device && device.gatt.connected) device.gatt.disconnect();
+    if (linkTimer) { clearTimeout(linkTimer); linkTimer = null; }
+    if (device && device.gatt.connected) { releasing = true; device.gatt.disconnect(); }
     choose().catch(function (e) { ch = null; say(e.name === 'NotFoundError' ? 'Batal memilih printer.' : 'Gagal menyambung: ' + e.message, 'is-off'); ready(); });
   });
 

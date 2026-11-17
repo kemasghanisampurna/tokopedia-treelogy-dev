@@ -148,3 +148,12 @@ test('one phone, one printer: the link is kept, its way in remembered, and label
   assert.equal(directPrinterFor({ email: 'v@treelogy.com', role: 'viewer', status: 'active' }), null);
   assert.equal(directPrinterFor({ email: 'f@treelogy.com', role: 'factory', status: 'active' }), null);
 });
+
+test('the host keeps reaching for a printer it once had, instead of waiting to be told it is on', async () => {
+  const { hostScript, directPrinterFor } = await import('../src/direct-print.js');
+  const js = hostScript(directPrinterFor({ role: 'packer', status: 'active', email: 'p@t.com' }));
+  assert.doesNotMatch(js, /Menunggu printer menyala/);
+  assert.match(js, /function keepLink\(dev\)/);
+  assert.match(js, /gattserverdisconnected[\s\S]*keepLink\(dev\)/, 'a drop is chased at once');
+  assert.match(js, /Math\.min\(10000/, 'never more than ten seconds between tries');
+});
