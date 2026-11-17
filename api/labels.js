@@ -9,7 +9,7 @@ import {
 } from '../src/dashboard-auth.js';
 import { recordActivity } from '../src/audit.js';
 import { can } from '../src/users.js';
-import { loadAssignments } from '../src/label-assign.js';
+import { loadAssignments, splitPrintable, heldText } from '../src/label-assign.js';
 import { loadWarehouse } from '../src/warehouse-run.js';
 import { shortagesFor, shortageText } from '../src/warehouse-reserve.js';
 import { ordersByIds } from '../src/db/orders.js';
@@ -113,14 +113,17 @@ export default async function handler(req, res) {
     const match = SELECTION.exec(String(value));
     if (match) selected.set(match[2], match[1]);
   }
-  // A packer's print is held to the parcels handed to them, whatever the form says.
+  // One rule for every print road (src/label-assign.js mayPrint): a parcel handed to a
+  // packer is printed by that packer and nobody else, and a packer prints only theirs.
+  // Refused whole, by name, rather than quietly printed short.
+  const handed = await loadAssignments().catch(() => null);
+  if (!handed) { fail(503, 'Daftar tugas tidak terbaca', 'Coba lagi sebentar.'); return; }
+  const { held } = splitPrintable(handed, [...selected].map(([id, channel]) => `${channel}:${id}`), user);
+  if (held.length) {
+    fail(403, user.role === 'packer' ? 'Bukan tugasmu' : 'Sudah ditugaskan ke packer', heldText(held, user));
+    return;
+  }
   if (user.role === 'packer') {
-    const mine = (await loadAssignments().catch(() => ({ orders: {} }))).orders;
-    for (const [id, channel] of [...selected]) if (mine[`${channel}:${id}`]?.to !== user.email) selected.delete(id);
-    if (selected.size === 0) {
-      fail(403, 'Bukan tugasmu', 'Tidak ada pesanan yang ditugaskan kepadamu di pilihan ini.');
-      return;
-    }
     // Goods that are not on the shelf cannot be packed; the label waits for them.
     const [shelf, rows] = await Promise.all([
       loadWarehouse().catch(() => null),
@@ -299,11 +302,7 @@ async function confirmPrint(form, user, req, res, fail) {
   let keys = ticket?.keys ?? [];
   if (!ticket) {
     // Outlived a restart: the keys the page carries, held to what this person may print.
-    keys = form.getAll('order').map(String).filter((v) => SELECTION.test(v));
-    if (user.role === 'packer') {
-      const mine = (await loadAssignments().catch(() => ({ orders: {} }))).orders;
-      keys = keys.filter((k) => mine[k]?.to === user.email);
-    }
+    keys = splitPrintable(await loadAssignments(), form.getAll('order').map(String).filter((v) => SELECTION.test(v)), user).mine;
   }
   if (keys.length === 0) { fail(400, 'Tidak ada yang dicatat', 'Tiket cetak tidak dikenal.'); return; }
   tickets.delete(String(form.get('ticket') ?? ''));

@@ -16,7 +16,7 @@ import { ageOf } from './mekari/heartbeat.js';
 import { REVIEW_CHANNELS } from './reviews/combined.js';
 import { paginate, pageHref, pageWindow, PER_PAGE_OPTIONS, DEFAULT_PER_PAGE } from './paging.js';
 import { can, canView, homeView, ROLES } from './users.js';
-import { assignmentFor } from './label-assign.js';
+import { assignmentFor, mayPrint } from './label-assign.js';
 import { shortagesFor, shortageText, needsFor } from './warehouse-reserve.js';
 import { phoneForCourier } from './phone.js';
 
@@ -95,6 +95,8 @@ icon.ext = '<path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.
 icon.grid = '<path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6Zm0 9.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6Zm0 9.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/>';
 icon.list = '<path d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>';
 icon.image = '<path d="m2.25 15.75 5.16-5.16a2.25 2.25 0 0 1 3.18 0l5.16 5.16m-1.5-1.5 1.41-1.41a2.25 2.25 0 0 1 3.18 0l2.91 2.91m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>';
+icon.close = '<path d="M6 6l12 12M18 6 6 18"/>';
+icon.arrow = '<path d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/>';
 icon.user = '<circle cx="12" cy="8" r="3.75"/><path d="M5.25 20.25a6.75 6.75 0 0 1 13.5 0"/>';
 icon.info = '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.75h.01"/>';
 icon.export = '<path d="M12 15V3m0 0L8.5 6.5M12 3l3.5 3.5M20.25 14.25v4.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-4.5"/>';
@@ -881,6 +883,18 @@ ${DIRECT_PRINT_CSS}
 .pq__tick .ico{width:14px; height:14px}
 .pq__acts{display:grid; grid-template-columns:1fr 1fr; gap:.6rem}
 .pq__acts:has(.pq__retry[hidden]){grid-template-columns:1fr}
+.pq__acts .pq__close[hidden]{display:none}
+.pq__head{display:flex; align-items:center; justify-content:space-between; gap:.75rem}
+.pq__x{width:44px; height:44px; margin:-.5rem -.6rem -.5rem 0; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; color:var(--muted); cursor:pointer; transition:background .2s, color .2s}
+.pq__x:hover{background:color-mix(in srgb, var(--fg) 6%, transparent); color:var(--fg)}
+.pq__x:disabled{opacity:.35; cursor:default} .pq__x .ico{width:20px; height:20px}
+.pq__next{min-height:56px; display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.5rem 1.1rem; text-align:left; cursor:pointer}
+.pq__next[hidden]{display:none}
+.pq__next-t{display:grid; min-width:0} .pq__next-t b{font-size:1rem; font-weight:700; line-height:1.2}
+.pq__next-t small{font-size:.8rem; font-weight:500; opacity:.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pq__next .ico{width:22px; height:22px; flex:none; transition:transform .2s var(--ease-out, ease-out)}
+.pq__next:hover .ico{transform:translateX(3px)}
+.pq__next:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .pq__retry{min-height:48px; justify-content:center; cursor:pointer} .pq__retry[hidden]{display:none}
 .pq__steps[hidden]{display:none}
 .pq__main{display:grid; gap:.2rem; min-width:0}
@@ -907,7 +921,7 @@ ${DIRECT_PRINT_CSS}
 @keyframes pq-up{from{transform:translateY(24px); opacity:0} to{transform:none; opacity:1}}
 .pq__sheet-in{display:grid; gap:.9rem; padding:.75rem 1.25rem 1.25rem; overflow:auto; max-height:90dvh}
 .pq__grab{justify-self:center; width:40px; height:4px; border-radius:2px; background:var(--line)}
-.pq__title{margin:0; font-size:1.15rem; font-weight:600} .pq__sub{margin:-.6rem 0 0; color:var(--muted); font-size:.85rem}
+.pq__title:focus{outline:none} .pq__title{margin:0; font-size:1.15rem; font-weight:600} .pq__sub{margin:-.6rem 0 0; color:var(--muted); font-size:.85rem}
 .pq__goods-list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
 .pq__good{display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:.9rem; padding:.55rem; border:1px solid var(--line); border-radius:12px; background:var(--panel-2)}
 .pq__good img,.pq__noimg{width:64px; height:64px; border-radius:10px; object-fit:cover; background:var(--line); display:block}
@@ -928,16 +942,6 @@ ${DIRECT_PRINT_CSS}
 .lb-to{display:inline-flex; align-items:center; gap:.25rem; color:var(--accent)} .lb-to .ico{width:.9rem; height:.9rem}
 .lb-assign{display:inline-flex; align-items:center; gap:.4rem} .lb-assign .dr__in{min-width:9rem}
 .lb-packers{gap:.4rem}
-.pk{display:grid; gap:.6rem; padding:.25rem 0 .5rem}
-.pk__c{display:grid; grid-template-columns:28px minmax(0,1fr); gap:.2rem .8rem; align-items:start; padding:.85rem 1rem; border:1px solid var(--line); border-radius:12px; background:var(--panel); cursor:pointer}
-.pk__c:has(.pick:checked){border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) inset}
-.pk__c:has(.pick:disabled){opacity:.55; cursor:default}
-.pk__pick{width:22px; height:22px; margin:.2rem 0 0; accent-color:var(--brand)}
-.pk__body{display:grid; gap:.25rem; min-width:0}
-.pk__top{display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .6rem} .pk__id{font-weight:600} .pk__when{font-size:.82rem}
-.pk__buyer{font-size:1.05rem; font-weight:600; line-height:1.3}
-.pk__goods{display:grid; gap:.1rem; color:var(--muted); font-size:.92rem}
-.pk__note{font-size:.85rem}
 .lb-tip{position:relative; display:inline-flex; vertical-align:-.2em; color:var(--muted); cursor:help; border-radius:50%}
 .lb-tip .ico{width:1rem; height:1rem}
 .lb-tip:hover, .lb-tip:focus-visible{color:var(--fg); outline:none}
@@ -6110,13 +6114,18 @@ const READY_TONE = { needsPrint: 'ok', reprint: 'flag' };
  * looks, ticks and prints exactly like one that was already on the page. A row with no
  * checkbox (`gone`) is one that cannot be printed, and `extra` says why underneath.
  */
-function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '' } = {}) {
+function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '', viewer = null } = {}) {
   // The stage pill is redundant here - every row on this page is printable by
   // definition, and the readiness note already says what matters.
   const times = Number(entry?.times ?? 0);
-  const why = extra || (readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : '');
+  // Handed to a packer: theirs to print (mayPrint). Still tickable, for Tugaskan/Lepas,
+  // but never ticked for a print and never sent with one.
+  const held = Boolean(viewer && assigned && !mayPrint(viewer, assigned));
+  const heldBy = held ? (assigned.name || assigned.to) : '';
+  if (held) on = false;
+  const why = [extra || (readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : ''), held ? `dicetak oleh ${heldBy} - lepas tugasnya dulu untuk mencetak sendiri` : ''].filter(Boolean).join(' · ');
   return `<tr data-id="${escape(String(o.id).toLowerCase())}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
-      <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}
+      <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}
         ${batchKey ? `data-batch="${escape(batchKey)}"` : ''}${out ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">`}</td>
       <td>${channelTag(o)}</td>
       <td>
@@ -6231,7 +6240,7 @@ function orderPreview(order) {
   </span>`;
 }
 
-export function renderLabelLookup({ orders, printed = {}, arranged = {}, people = {} }) {
+export function renderLabelLookup({ orders, printed = {}, arranged = {}, people = {}, assignments = null, user = null }) {
   const personName = (email) => people[email] || String(email || '').split('@')[0] || 'tidak diketahui';
   return orders.map((o) => {
     const readiness = labelReadiness(o, printed, arranged);
@@ -6242,7 +6251,7 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
       : '';
     const why = [gone && readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : '', when]
       .filter(Boolean).join(' · ');
-    return labelRowHtml({ order: o, readiness, entry }, { on: !gone, gone, extra: why });
+    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user });
   }).join('');
 }
 
@@ -6367,7 +6376,8 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
   <dialog class="pq__sheet" id="pq-sheet" aria-labelledby="pq-title">
     <div class="pq__sheet-in">
       <div class="pq__grab" aria-hidden="true"></div>
-      <h2 class="pq__title" id="pq-title">Isi paket</h2>
+      <div class="pq__head"><h2 class="pq__title" id="pq-title" tabindex="-1" autofocus>Isi paket</h2>
+        <button class="pq__x" type="button" id="pq-x" aria-label="Tutup">${svg('close')}</button></div>
       <p class="pq__sub mono" id="pq-order"></p>
       <ul class="pq__goods-list" id="pq-goods"></ul>
       <div class="pq__steps" role="status" aria-live="polite">
@@ -6379,6 +6389,9 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       <div class="pq__acts">
         <button class="pq__close" type="button" id="pq-close">Tutup</button>
         <button class="cta pq__retry" type="button" id="pq-retry" hidden>Coba lagi</button>
+        <button class="cta pq__next" type="button" id="pq-next" hidden>
+          <span class="pq__next-t"><b>Pesanan berikutnya</b><small id="pq-next-who"></small></span>${svg('arrow')}
+        </button>
       </div>
     </div>
   </dialog>
@@ -6394,6 +6407,7 @@ const PACKER_SCRIPT = `
   var goodsEl = document.getElementById('pq-goods'), orderEl = document.getElementById('pq-order');
   var waitEl = document.getElementById('pq-wait'), errEl = document.getElementById('pq-err'), closeBtn = document.getElementById('pq-close');
   var retryBtn = document.getElementById('pq-retry'), stepsEl = sheet.querySelector('.pq__steps');
+  var nextBtn = document.getElementById('pq-next'), nextWho = document.getElementById('pq-next-who'), xBtn = document.getElementById('pq-x');
   var dot = document.getElementById('pq-dot'), stateEl = document.getElementById('pq-state'), pairBtn = document.getElementById('pq-pair');
   var todoList = document.getElementById('pq-todo'), doneList = document.getElementById('pq-done');
   var tabs = root.querySelector('.pq__tabs'), tickTpl = document.getElementById('pq-tick');
@@ -6577,11 +6591,37 @@ const PACKER_SCRIPT = `
         + '<span class="pq__qty mono">×' + g.qty + '</span></li>';
     }).join('') || '<li class="dim">Isi paket tidak tercatat.</li>';
   }
+  /*
+   * The bottom of the sheet says what comes next. While a label is on its way: Tutup,
+   * held. Printed, with another parcel waiting: "Pesanan berikutnya" - one tap prints
+   * it and shows what goes in that box, so a run is tap, pack, tap. Printed and nothing
+   * left that can print: Tutup. Failed: Coba lagi beside Tutup. The X at the top always
+   * closes once nothing is in flight.
+   */
+  function nextRow() {
+    if (!printerOk()) return null;
+    var rows = todoList.querySelectorAll('.pq__row');
+    for (var i = 0; i < rows.length; i++) {
+      var b = rows[i].querySelector('.pq__go');
+      if (rows[i].getAttribute('data-state') === 'todo' && b && !b.disabled && !b.hasAttribute('data-mode')) return rows[i];
+    }
+    return null;
+  }
+  function footer(mode) {
+    var nxt = mode === 'done' ? nextRow() : null;
+    nextBtn.hidden = !nxt;
+    if (nxt) nextWho.textContent = nxt.querySelector('.pq__id').textContent + ' · ' + nxt.querySelector('.pq__buyer').textContent;
+    closeBtn.hidden = !!nxt;
+    closeBtn.disabled = mode === 'busy'; xBtn.disabled = mode === 'busy';
+    retryBtn.hidden = !(mode === 'fail' && retry);
+    if (nxt && sheet.open) nextBtn.focus();
+  }
   function show(row, who) {
     fillGoods(row);
-    stepsEl.hidden = false; errEl.hidden = true; retryBtn.hidden = true; retry = null;
+    // retry was just set by the press that called this; it is what Coba lagi repeats.
+    stepsEl.hidden = false; errEl.hidden = true;
     waitEl.textContent = 'Menunggu ' + who + ' mencetak';
-    go(1); closeBtn.disabled = true;
+    go(1); footer('busy');
     open();
   }
   // A printed parcel, opened from "Sudah dicetak": its contents and when, nothing to press.
@@ -6589,18 +6629,19 @@ const PACKER_SCRIPT = `
     fillGoods(row);
     var t = row.querySelector('.pq__stamp .mono');
     orderEl.textContent += t ? ' · dicetak ' + t.textContent : '';
-    stepsEl.hidden = true; errEl.hidden = true; retryBtn.hidden = true; closeBtn.disabled = false;
+    stepsEl.hidden = true; errEl.hidden = true; retry = null; footer('view');
     open();
   }
   function done(row) {
-    busy = false; busyRow = null; closeBtn.disabled = false; step(4);
+    busy = false; busyRow = null; step(4);
     moveToDone(row);
+    footer('done');
   }
   function fail(row, message) {
-    busy = false; busyRow = null; closeBtn.disabled = false; step(current, true);
+    busy = false; busyRow = null; step(current, true);
     errEl.textContent = 'Gagal: ' + message; errEl.hidden = false;
-    retryBtn.hidden = !retry;
     paintButtons();
+    footer('fail');
     pullShelf();
   }
   async function fetchLabel(key, format) {
@@ -6629,7 +6670,7 @@ const PACKER_SCRIPT = `
     var err = await confirmPrint(p, true);
     if (!err) return done(p.row);
     // The label is on paper but not on record: try the record again, never the print.
-    retry = function () { busy = true; busyRow = p.row; closeBtn.disabled = true; errEl.hidden = true; retryBtn.hidden = true; go(2); record(p); };
+    retry = function () { busy = true; busyRow = p.row; errEl.hidden = true; go(2); footer('busy'); record(p); };
     fail(p.row, 'label sudah keluar dari printer, tapi belum tercatat (' + err + '). Ketuk Coba lagi untuk mencatat.');
   }
   async function snapshot() {
@@ -6644,7 +6685,11 @@ const PACKER_SCRIPT = `
     try {
       // The shelf as it is now, not as it was when the page was drawn.
       var items = await pullShelf();
-      if (items && shortOf(row, items).length) { busy = false; busyRow = null; applyShelf(items); if (sheet.open) sheet.close(); return; }
+      if (items && shortOf(row, items).length) {
+        busy = false; busyRow = null; applyShelf(items);
+        if (sheet.open) { var nx = nextRow(); if (nx) { press(nx); } else sheet.close(); }
+        return;
+      }
       if (host) {
         show(row, hostName || 'printer');
         if (!hostReady) throw new Error('printer belum tersambung. Ketuk Sambungkan di bilah atas, lalu Coba lagi');
@@ -6691,6 +6736,9 @@ const PACKER_SCRIPT = `
   });
   retryBtn.addEventListener('click', function () { var r = retry; if (r && !busy) r(); });
   closeBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
+  xBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
+  // Straight on to the next parcel: printed like any press, its contents shown here.
+  nextBtn.addEventListener('click', function () { var r = nextRow(); if (r && !busy) press(r); else footer('done'); });
   sheet.addEventListener('cancel', function (e) { if (busy) e.preventDefault(); });
 })();
 `;
@@ -6758,9 +6806,10 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     // only on the page so the search can reach it, and anything past what one print run
     // accepts.
     const gone = Boolean(readiness.unavailable);
-    const on = !gone && !out && ticked < MAX_PRESELECT;
+    const held = Boolean(assigned && !mayPrint(user, assigned));
+    const on = !gone && !out && !held && ticked < MAX_PRESELECT;
     if (on) ticked += 1;
-    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone });
+    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone, viewer: user });
   };
 
   /*
@@ -6835,30 +6884,6 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     : candidates.map((r) => labelRow(r)).join('');
 
 
-
-  /*
-   * The packer's page is a list of parcels, not a table of rows.
-   *
-   * It is read on a phone at a bench with one hand: each parcel is a card big enough to
-   * tap, saying who it is for, what goes in the box and which channel it ships on, with
-   * one button at the bottom. Nothing here reprints, marks or hands out; those are
-   * other people's jobs.
-   */
-  const packerCards = isPacker ? candidates.map(({ order: o, readiness }) => {
-    const gone = Boolean(readiness.unavailable);
-    const on = !gone && ticked < MAX_PRESELECT;
-    if (on) ticked += 1;
-    const goods = (o.lines ?? []).map((l) => `${l.name || l.sku}${l.variant ? ` (${l.variant})` : ''} ×${Number(l.qty) || 0}`);
-    return `<label class="pk__c" data-id="${escape(String(o.id).toLowerCase())}">
-      <input class="pick pk__pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
-      <span class="pk__body">
-        <span class="pk__top">${channelTag(o)}<span class="mono pk__id">${escape(o.id)}</span><span class="dim pk__when">${escape(dateTime(o.createdAt, o.channel))}</span></span>
-        <span class="pk__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</span>
-        ${goods.length ? `<span class="pk__goods">${goods.map((g) => `<span>${escape(g)}</span>`).join('')}</span>` : ''}
-        <span class="pk__note ${readiness.changed ? 'stop' : (READY_TONE[readiness.state] ?? 'dim')}">${escape(readiness.note)}</span>
-      </span>
-    </label>`;
-  }).join('') : '';
 
   /*
    * Handing out: whoever may write picks a packer and hands them the ticked labels, or
@@ -6956,7 +6981,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         <span class="rpf__n" id="lbq-n" hidden></span>
       </div>`;
   const empty = showReprints ? shownBatches.length === 0 : candidates.length === 0;
-  const searchBox = isPacker ? '' : search;
+  const searchBox = search;
 
   if (isPacker) {
     return shell({ user, csrf, title: 'Label', range, errors, shopeeShop, generatedAt, view: 'labels',
@@ -6978,10 +7003,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     hideRangeControls: true, scope: 'semua yang perlu dicetak',
     readAt, settleFailed,
     flash,
-    // A packer's page is their parcels and one button; the title and the counts are for
-    // the people who run the whole queue.
-    hideHead: isPacker,
-    kpis: isPacker ? '' : `
+    kpis: `
       <div class="strip">
         ${counts.changed > 0 ? stat('Perlu cetak ulang', String(counts.changed), 'stop') : ''}
         ${stat('Perlu dicetak', String(counts.needsPrint), counts.needsPrint > 0 ? 'ok' : '')}
@@ -6998,25 +7020,17 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         ${packerChips}
         ${searchBox}
         ${empty ? `<div id="lb-empty"><p class="empty">${!showReprints
-          ? (isPacker ? 'Belum ada label yang ditugaskan kepadamu.' : onlyChanged ? 'Tidak ada label yang perlu dicetak ulang.' : packerFilter ? 'Tidak ada label di tumpukan ini.' : 'Semua label sudah dicetak.')
+          ? (onlyChanged ? 'Tidak ada label yang perlu dicetak ulang.' : packerFilter ? 'Tidak ada label di tumpukan ini.' : 'Semua label sudah dicetak.')
           : filtering
             ? 'Tidak ada batch cetak yang cocok dengan filter ini.'
             : 'Tidak ada label yang bisa dicetak.'}</p>
-         ${isPacker ? '' : `<div class="apply">${filtering
+         ${`<div class="apply">${filtering
            ? '<a class="chip" href="?view=labels&reprint=1">Hapus filter</a>'
            : `<a class="chip" href="?view=labels&reprint=${showReprints ? '0' : '1'}">${
               showReprints ? 'Kembali ke daftar harian' : 'Tampilkan cetak ulang'}</a>`}</div>`}</div>` : ''}
         <form method="post" action="/api/labels" target="_blank" id="lbform"${empty ? ' data-empty hidden' : ''}>
           <input type="hidden" name="csrf" value="${escape(csrf)}">
-          ${isPacker ? `<div class="filters">
-            <input type="hidden" name="size" value="${escape(defaultSize)}">
-            <input type="checkbox" id="head" checked hidden aria-hidden="true" tabindex="-1">
-            <span class="dim">${candidates.length} label untukmu</span>
-            <span class="grow"></span>
-            <button class="chip" type="button" id="pickall" aria-pressed="true">Kosongkan semua</button>
-          </div>
-          <div class="pk" id="lb-rows">${packerCards}</div>
-          <div id="lbq-more" hidden></div>` : `<div class="filters">
+          ${`<div class="filters">
             <label class="dr__lbl" for="size">Ukuran label</label>
             <select class="dr__in" id="size" name="size">${sizeOptions}</select>${assignTools}
             <span class="grow"></span>
@@ -7035,7 +7049,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
           <div class="apply">
             <button type="submit" id="go">Cetak <span id="n">${ticked}</span> label</button>
             <span class="dim" id="over" hidden>Maksimal ${MAX_PRESELECT} label sekali cetak &mdash; bagi jadi beberapa batch.</span>
-            ${candidates.length > 0 && !showReprints && !isPacker
+            ${candidates.length > 0 && !showReprints
               ? `<button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self"
                    name="action" value="label_printed"
                    data-confirm-text="Tandai label yang tercentang sebagai sudah dicetak, tanpa mencetak?">Tandai sudah dicetak</button>`
@@ -7056,8 +7070,21 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   refresh();
 
   // Only what a search has left on screen counts. A disabled row is not printed, so
-  // counting it would promise a sheet that is not coming.
-  function visible() { return picks.filter(function (p) { return !p.disabled; }); }
+  // counting it would promise a sheet that is not coming - nor is one handed to a packer.
+  function visible() { return picks.filter(function (p) { return !p.disabled && !p.hasAttribute('data-held'); }); }
+
+  /*
+   * A parcel handed to a packer can be ticked - to hand it to someone else, or take it
+   * back - but it never rides along with a print or a "sudah dicetak". Those two leave
+   * it out of what they send; Tugaskan and Lepas send it as ticked.
+   */
+  form.addEventListener('submit', function (e) {
+    var action = e.submitter && e.submitter.getAttribute('value');
+    if (action === 'label_assign' || action === 'label_unassign') return;
+    var held = picks.filter(function (p) { return p.checked && !p.disabled && p.hasAttribute('data-held'); });
+    held.forEach(function (p) { p.disabled = true; });
+    setTimeout(function () { held.forEach(function (p) { p.disabled = false; }); }, 0);
+  }, true);
 
   function sync() {
     var live = visible();

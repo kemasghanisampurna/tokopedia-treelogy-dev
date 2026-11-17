@@ -45,6 +45,42 @@ export const assignmentFor = (doc, order) => base(doc).orders[orderKey(order)] ?
 /** The orders of this packer, out of a list. */
 export const assignedTo = (doc, orders, email) => orders.filter((o) => assignmentFor(doc, o)?.to === email);
 
+/**
+ * Who may print a parcel - the one rule every print road asks.
+ *
+ * Handed to a packer, the parcel is theirs: only they print it, so it never comes out
+ * of two printers. A packer prints only what was handed to them. Anybody else prints
+ * what nobody has been handed; to print a handed parcel themselves, they take it back
+ * first ("Lepas"), which the packer's page then shows.
+ */
+export function mayPrint(user, assignment) {
+  if (!user) return false;
+  if (user.role === 'packer') return assignment?.to === user.email;
+  return !assignment || assignment.to === user.email;
+}
+
+/** Order keys ("channel:id") split into what this person may print and what is held. */
+export function splitPrintable(doc, keys, user) {
+  const orders = base(doc).orders;
+  const mine = [];
+  const held = [];
+  for (const key of keys) {
+    const a = orders[key] ?? null;
+    if (mayPrint(user, a)) mine.push(key);
+    else held.push({ key, to: a?.to ?? null, name: a?.name || a?.to || null });
+  }
+  return { mine, held };
+}
+
+/** The refusal, in the words the person sees. */
+export function heldText(held, user) {
+  const first = held[0];
+  const id = first.key.slice(first.key.indexOf(':') + 1);
+  if (user?.role === 'packer') return `${id} tidak ditugaskan kepadamu.`;
+  const more = held.length > 1 ? ` (dan ${held.length - 1} lainnya)` : '';
+  return `${id}${more} sudah ditugaskan ke ${first.name} - hanya ${first.name} yang bisa mencetaknya. Lepas tugasnya dulu kalau mau dicetak sendiri.`;
+}
+
 /* ----------------------------------------------------------- the store */
 
 export async function loadAssignments() {

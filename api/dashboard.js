@@ -28,7 +28,7 @@ import { heldOrders, withHolds } from '../src/shopify/hold.js';
 import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
-import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo } from '../src/label-assign.js';
+import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo, splitPrintable, heldText } from '../src/label-assign.js';
 import { reserveFor, shelfPulse } from '../src/warehouse-reserve.js';
 import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
@@ -1002,6 +1002,9 @@ export async function handleWrite(form, ip, user, csrf) {
     const keys = form.getAll('order').map(String).filter((value) => LABEL_SELECTION.test(value));
     if (keys.length === 0) throw new Error('tidak ada pesanan yang dipilih');
     if (keys.length > 200) throw new Error('terlalu banyak sekaligus');
+    // The same rule as printing: a parcel handed to a packer is theirs to finish.
+    const { held } = splitPrintable(await loadAssignments(), keys, user);
+    if (held.length) throw new Error(heldText(held, user));
 
     await markPrinted(keys, { by: user.email, marked: true });
     void warehouseSweep();
@@ -2608,10 +2611,11 @@ export default async function handler(req, res) {
           listUsers().catch(() => []),
           heldOrders().catch(() => ({})),
         ]);
+        const handed = await loadAssignments().catch(() => ({ orders: {} }));
         const found = withHolds({ orders: matched }, holds).orders;
         const people = Object.fromEntries(roster.map((u) => [u.email, u.name]));
         console.log(`dashboard/labels lookup: ${found.length} match(es)`);
-        json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people }), count: found.length });
+        json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people, assignments: handed, user }), count: found.length });
       } catch (error) {
         console.error('dashboard/labels lookup failed:', error.message);
         json(502, { error: 'Pencarian ke database gagal, coba lagi sebentar.' });

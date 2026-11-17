@@ -285,7 +285,7 @@ export function directPrintScript(printer) {
   var host = null, connected = false, busy = false, printing = null;
 
   function say(text, tone) { state.textContent = text; dot.className = 'dp__dot ' + (tone || ''); }
-  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled)').length : 0; }
+  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled):not([data-held])').length : 0; }
   function ready() {
     var n = picked();
     goN.textContent = n ? n + ' label' : '';
@@ -386,6 +386,10 @@ export function directPrintScript(printer) {
   goBtn.addEventListener('click', async function () {
     if (!form || busy || !connected) return;
     var body = new URLSearchParams(new FormData(form));
+    // A parcel handed to a packer is theirs to print: ticked for Tugaskan/Lepas, never sent.
+    var heldKeys = Array.prototype.map.call(form.querySelectorAll('.pick[data-held]'), function (p) { return p.value; });
+    var keep = body.getAll('order').filter(function (v) { return heldKeys.indexOf(v) < 0; });
+    body.delete('order'); keep.forEach(function (v) { body.append('order', v); });
     // Rendered on the server, in the printer's own language: the phone only sends bytes.
     body.set('format', 'tspl');
     var orders = body.getAll('order');
@@ -854,7 +858,7 @@ export function benchScript() {
   var online = box.getAttribute('data-online') === '1', busy = false;
 
   function say(text, tone) { state.textContent = text; dot.className = 'dp__dot ' + (tone || ''); }
-  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled)').length : 0; }
+  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled):not([data-held])').length : 0; }
   function ready() {
     var n = picked();
     goN.textContent = n ? n + ' label' : '';
@@ -896,6 +900,10 @@ export function benchScript() {
   goBtn.addEventListener('click', async function () {
     if (!form || busy || !online) return;
     var body = new URLSearchParams(new FormData(form));
+    // A parcel handed to a packer is theirs to print: ticked for Tugaskan/Lepas, never sent.
+    var heldKeys = Array.prototype.map.call(form.querySelectorAll('.pick[data-held]'), function (p) { return p.value; });
+    var keep = body.getAll('order').filter(function (v) { return heldKeys.indexOf(v) < 0; });
+    body.delete('order'); keep.forEach(function (v) { body.append('order', v); });
     body.set('format', 'queue');
     var orders = body.getAll('order');
     if (!orders.length) { say('Centang pesanan dulu.', 'is-on'); return; }

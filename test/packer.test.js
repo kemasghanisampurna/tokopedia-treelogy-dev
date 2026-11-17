@@ -145,3 +145,43 @@ test('without a connected printer the packer is asked to pick one before anythin
   const { hostScript, directPrinterFor } = await import('../src/direct-print.js');
   assert.match(hostScript(directPrinterFor(packer)), /m\.type === 'dp:choose'/);
 });
+
+test('a parcel handed to a packer is printed by that packer only - one rule, every road', async () => {
+  const { mayPrint, splitPrintable, heldText } = await import('../src/label-assign.js');
+  const toBudi = { to: packer.email, name: 'Budi' };
+  assert.equal(mayPrint(packer, toBudi), true);
+  assert.equal(mayPrint(packer, null), false, 'a packer prints only what was handed to them');
+  assert.equal(mayPrint(agas, null), true);
+  assert.equal(mayPrint(agas, toBudi), false, 'Agas cannot print what he handed to Budi');
+  assert.equal(mayPrint(agas, { to: agas.email, name: 'Agas' }), true);
+  const split = splitPrintable(assignments, ['shopify:#1', 'shopify:#9'], agas);
+  assert.deepEqual(split.mine, ['shopify:#9']);
+  assert.equal(split.held[0].key, 'shopify:#1');
+  assert.match(heldText(split.held, agas), /#1 sudah ditugaskan ke Budi - hanya Budi yang bisa mencetaknya/);
+
+  // On Agas's label page: the row stays tickable (for Lepas) but starts unticked, says who
+  // prints it, and is never counted or sent with a print.
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W'), order('#2', 'S')], assignments, packers: [packer] });
+  assert.match(html, /value="shopify:#1"[^>]*data-held="Budi"/);
+  assert.doesNotMatch(html, /value="shopify:#1" checked/);
+  assert.match(html, /value="shopify:#2" checked/);
+  assert.match(html, /dicetak oleh Budi - lepas tugasnya dulu/);
+  assert.match(html, /Cetak <span id="n">1<\/span> label/);
+
+  const fs = await import('node:fs');
+  const api = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
+  assert.match(api, /splitPrintable\(handed,/, 'the print road asks the shared rule');
+  const dash = fs.readFileSync(new URL('../api/dashboard.js', import.meta.url), 'utf8');
+  assert.match(dash, /const \{ held \} = splitPrintable\(await loadAssignments\(\), keys, user\);\s*if \(held\.length\) throw/, '"sudah dicetak" too');
+});
+
+test('after a print the sheet offers the next parcel, which prints at once; with none left it says Tutup', () => {
+  const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments, packers: [packer] });
+  assert.match(page, /id="pq-next" hidden>/);
+  assert.match(page, /<b>Pesanan berikutnya<\/b>/);
+  assert.match(page, /id="pq-x" aria-label="Tutup"/, 'an exit that is always there');
+  // The next one is the first row that can actually print now, and pressing it prints.
+  assert.match(page, /function nextRow\(\) \{\s*if \(!printerOk\(\)\) return null;/);
+  assert.match(page, /nextBtn\.addEventListener\('click', function \(\) \{ var r = nextRow\(\); if \(r && !busy\) press\(r\);/);
+  assert.match(page, /closeBtn\.hidden = !!nxt;/, 'Tutup gives way to the next parcel, and comes back when there is none');
+});
