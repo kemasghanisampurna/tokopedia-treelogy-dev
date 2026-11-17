@@ -63,9 +63,7 @@ export const figuresFor = (item, reserve, code) => {
  */
 export function shortagesFor(doc, order) {
   if (!doc?.items || !order) return [];
-  const seen = doc.orders?.[`${order.channel}|${order.id}`];
-  if (seen && !seen.undone) return [];
-  const { items } = itemsForOrder(order, doc.recipes ?? {});
+  const items = needsFor(doc, order);
   const short = [];
   for (const [code, need] of Object.entries(items)) {
     const item = doc.items[code];
@@ -74,6 +72,25 @@ export function shortagesFor(doc, order) {
     if (have < need) short.push({ code, name: item.name ?? code, need, have });
   }
   return short;
+}
+
+/**
+ * What this order will take off the shelf, {code: qty} - empty when the shelf has
+ * already counted it. Written into the packer's row so the page can hold it against
+ * the shelf as it moves, without asking for the order again.
+ */
+export function needsFor(doc, order) {
+  if (!order) return {};
+  const seen = doc?.orders?.[`${order.channel}|${order.id}`];
+  if (seen && !seen.undone) return {};
+  return itemsForOrder(order, doc?.recipes ?? {}).items;
+}
+
+/** The shelf as the packer page polls it: {code: {q, n}} - only what is needed to judge. */
+export function shelfPulse(doc) {
+  const items = {};
+  for (const [code, item] of Object.entries(doc?.items ?? {})) items[code] = { q: Number(item?.qty) || 0, n: item?.name ?? code };
+  return { at: Date.now(), items };
 }
 
 /** The one line a packer reads: "Stok di rak kurang: Capsules 90 (perlu 2, ada 0)". */

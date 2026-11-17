@@ -87,4 +87,14 @@ test('a parcel the shelf cannot fill cannot be printed, and says what is missing
   assert.match(html, /pq__short" role="note">.*Stok di rak kurang: Organic Moringa Capsules 90 \(perlu 2, ada 1\)/s);
   const fine = renderLabels({ ...base, user: packer, isPacker: true, orders: [o], assignments, packers: [packer], shelf: { ...shelf, items: { [code]: { name: 'x', qty: 9 } } } });
   assert.doesNotMatch(fine, /data-print="shopify:#1" disabled/);
+  // The page keeps judging after it is drawn: each row carries what it needs, the note
+  // is there (hidden) to be filled, and the shelf is polled.
+  assert.ok(fine.includes(`data-need="${JSON.stringify({ [code]: 2 }).replace(/"/g, '&quot;')}"`), 'the row says what it takes off the shelf');
+  assert.match(fine, /pq__short" role="note" hidden>/);
+  assert.match(fine, /view=labels&shelf=1/);
+  const scripts = [...fine.matchAll(/<script(?![^>]*application\/json)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  for (const js of scripts) assert.doesNotThrow(() => new Function(js), 'page script parses');
+  const { shelfPulse } = await import('../src/warehouse-reserve.js');
+  const pulse = shelfPulse(shelf);
+  assert.deepEqual(pulse.items, { [code]: { q: 1, n: 'Organic Moringa Capsules 90' } });
 });

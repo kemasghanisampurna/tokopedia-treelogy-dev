@@ -29,7 +29,7 @@ import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
 import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo } from '../src/label-assign.js';
-import { reserveFor } from '../src/warehouse-reserve.js';
+import { reserveFor, shelfPulse } from '../src/warehouse-reserve.js';
 import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
 import { refreshOrders, refreshOneOrder, RESHIPS, diffOrder } from '../src/orders-refresh.js';
@@ -2587,6 +2587,12 @@ export default async function handler(req, res) {
       send(200, JSON.stringify(await benchSnapshot()), { 'Content-Type': 'application/json; charset=utf-8' });
       return;
     }
+    // The shelf for the packer page, polled every few seconds: one cached read, no orders.
+    if (view === 'labels' && url.searchParams.get('shelf') === '1') {
+      const doc = await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null);
+      send(200, JSON.stringify(shelfPulse(doc)), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      return;
+    }
     if (view === 'labels' && url.searchParams.has('lookup')) {
       const fragment = String(url.searchParams.get('lookup') ?? '').slice(0, 64);
       const json = (status, body) => send(status, JSON.stringify(body), { 'Content-Type': 'application/json; charset=utf-8' });
@@ -2673,7 +2679,7 @@ export default async function handler(req, res) {
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
         bench, assignments, packers, packerFilter, isPacker, images: isPacker ? await imagesByKey() : {},
-        shelf: isPacker ? await cached('warehouse', 15_000, () => loadWarehouse(), SWR).catch(() => null) : null,
+        shelf: isPacker ? await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null) : null,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

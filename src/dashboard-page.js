@@ -17,7 +17,7 @@ import { REVIEW_CHANNELS } from './reviews/combined.js';
 import { paginate, pageHref, pageWindow, PER_PAGE_OPTIONS, DEFAULT_PER_PAGE } from './paging.js';
 import { can, canView, homeView, ROLES } from './users.js';
 import { assignmentFor } from './label-assign.js';
-import { shortagesFor, shortageText } from './warehouse-reserve.js';
+import { shortagesFor, shortageText, needsFor } from './warehouse-reserve.js';
 import { phoneForCourier } from './phone.js';
 
 /** Server-rendered omnichannel dashboard. No secrets and no user input reach the markup unescaped. */
@@ -865,6 +865,7 @@ ${DIRECT_PRINT_CSS}
 .pq__row.is-short{border-color:color-mix(in srgb, var(--bad) 45%, var(--line))}
 .pq__row.is-short .pq__go{background:transparent; color:var(--dim); border:1px solid var(--line); box-shadow:none; opacity:1}
 .pq__short{display:flex; align-items:flex-start; gap:.4rem; margin-top:.35rem; color:var(--bad); font-size:.85rem; line-height:1.35}
+.pq__short[hidden]{display:none}
 .pq__short .ico{width:16px; height:16px; flex:none; margin-top:.1rem}
 .pq__sheet{width:min(560px, 100%); max-height:90dvh; margin:auto auto 0; padding:0; border:0; border-radius:20px 20px 0 0; background:var(--panel); color:var(--fg); box-shadow:0 -20px 60px rgba(0,0,0,.5)}
 @media (min-width:700px){.pq__sheet{margin:auto; border-radius:20px}}
@@ -6247,14 +6248,16 @@ function packerBody({ rows, bench, csrf, size, images, shelf = null }) {
     const goods = lines.map((l) => ({ name: l.name || l.sku, variant: l.variant || '', qty: Number(l.qty) || 0, sku: l.sku || '', img: photoFor(images, l.sku) }));
     const key = `${o.channel}:${o.id}`;
     // Nothing on the shelf to pack: no label, and the row says what is missing.
+    // The page keeps holding `data-need` against the shelf as it moves (PACKER_SCRIPT).
     const short = shortagesFor(shelf, o);
     const gone = Boolean(readiness.unavailable) || short.length > 0;
-    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-state="${short.length ? 'short' : 'todo'}">
+    const need = shelf ? needsFor(shelf, o) : {};
+    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-state="${short.length ? 'short' : 'todo'}"${readiness.unavailable ? ' data-blocked="1"' : ''} data-need="${escape(JSON.stringify(need))}">
       <div class="pq__main">
         <div class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></div>
         <div class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</div>
         <div class="pq__sum">${units} barang &middot; ${lines.length} produk${readiness.changed ? ' &middot; <span class="stop">data berubah</span>' : ''}</div>
-        ${short.length ? `<div class="pq__short" role="note">${svg('warn')}<span>${escape(shortageText(short))}</span></div>` : ''}
+        <div class="pq__short" role="note"${short.length ? '' : ' hidden'}>${svg('warn')}<span>${escape(shortageText(short))}</span></div>
       </div>
       <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
         <span class="pq__go-t">${short.length ? 'Stok kosong' : 'Cetak'}</span>
@@ -6336,6 +6339,52 @@ const PACKER_SCRIPT = `
     window.top.location.href = '/api/dashboard?view=printer&go=' + encodeURIComponent(location.pathname + location.search);
   });
 
+  /*
+   * The shelf, live. The page was drawn against the shelf as it stood then; a minute
+   * later another packer's label may have taken the last pouch. So the shelf is asked
+   * again every few seconds while the page is in view, at once when it comes back into
+   * view, and once more right before a press - and every row is held against it again.
+   * A row that runs short turns "Stok kosong"; one whose goods came back turns "Cetak".
+   * The server refuses a short print as well, so a missed beat never prints one.
+   */
+  function shortOf(row, items) {
+    var need = {}; try { need = JSON.parse(row.getAttribute('data-need') || '{}'); } catch (e) {}
+    var out = [];
+    Object.keys(need).forEach(function (code) {
+      var it = items[code]; if (!it) return;
+      if (it.q < need[code]) out.push(it.n + ' (perlu ' + need[code] + ', ada ' + Math.max(0, it.q) + ')');
+    });
+    return out;
+  }
+  function applyShelf(items) {
+    root.querySelectorAll('.pq__row').forEach(function (row) {
+      var st = row.getAttribute('data-state');
+      if (st === 'done' || (pending && pending.row === row) || (busy && row === busyRow)) return;
+      var short = shortOf(row, items), note = row.querySelector('.pq__short'), btn = row.querySelector('.pq__go');
+      row.classList.toggle('is-short', short.length > 0);
+      row.setAttribute('data-state', short.length ? 'short' : 'todo');
+      note.hidden = !short.length;
+      if (short.length) note.querySelector('span').textContent = 'Stok di rak kurang: ' + short.join(', ');
+      btn.disabled = short.length > 0 || row.getAttribute('data-blocked') === '1';
+      btn.querySelector('.pq__go-t').textContent = short.length ? 'Stok kosong' : 'Cetak';
+    });
+  }
+  var shelfAt = 0, shelfBusy = null;
+  function pullShelf() {
+    if (shelfBusy) return shelfBusy;
+    shelfBusy = fetch(location.pathname + '?view=labels&shelf=1', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) { if (s && s.items) { shelfAt = Date.now(); applyShelf(s.items); return s.items; } return null; })
+      .catch(function () { return null; })
+      .then(function (v) { shelfBusy = null; return v; });
+    return shelfBusy;
+  }
+  var busyRow = null;
+  setInterval(function () { if (document.visibilityState === 'visible') pullShelf(); }, 4000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') pullShelf(); });
+  window.addEventListener('focus', function () { if (Date.now() - shelfAt > 1500) pullShelf(); });
+  window.addEventListener('pageshow', function () { pullShelf(); });
+
   function step(n, failed) {
     sheet.querySelectorAll('.pq__step').forEach(function (s) {
       var k = Number(s.getAttribute('data-step'));
@@ -6357,13 +6406,14 @@ const PACKER_SCRIPT = `
     if (typeof sheet.showModal === 'function') sheet.showModal(); else sheet.setAttribute('open', '');
   }
   function done(row) {
-    busy = false; closeBtn.disabled = false; step(4);
+    busy = false; busyRow = null; closeBtn.disabled = false; step(4);
     row.setAttribute('data-state', 'done');
     var b = row.querySelector('.pq__go'); b.disabled = true; b.querySelector('.pq__go-t').textContent = 'Dicetak';
   }
   function fail(row, message) {
-    busy = false; closeBtn.disabled = false; step(current, true);
+    busy = false; busyRow = null; closeBtn.disabled = false; step(current, true);
     errEl.textContent = 'Gagal: ' + message; errEl.hidden = false;
+    pullShelf();
   }
   async function fetchLabel(key, format) {
     var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), size: root.getAttribute('data-size'), order: key, format: format });
@@ -6380,8 +6430,11 @@ const PACKER_SCRIPT = `
   root.addEventListener('click', async function (e) {
     var btn = e.target.closest('[data-print]'); if (!btn || busy) return;
     var row = btn.closest('.pq__row'), key = btn.getAttribute('data-print');
-    busy = true;
+    busy = true; busyRow = row;
     try {
+      // The shelf as it is now, not as it was when the page was drawn.
+      var items = await pullShelf();
+      if (items && shortOf(row, items).length) { busy = false; busyRow = null; return; }
       if (host && hostReady) {
         // The phone's printer: the server sends the label ready-made, the host sends it on.
         show(row, hostName);
