@@ -1734,6 +1734,20 @@ a.rv__product:hover{color:var(--accent)}
 .fset{padding:1rem; border-top:1px solid var(--line)}
 .fset:first-child{border-top:0}
 .fset__h{font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 0 .7rem}
+/* The two halves of a resend the operator has to set by hand, marked so neither is missed:
+   an accent bar and tint on the section, an icon, and a badge that turns once it is done. */
+.fset--key{--k:var(--act); box-shadow:inset 3px 0 0 var(--k);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--k) 9%,transparent),transparent 55%)}
+.fset--sent{--k:var(--warn)}
+.fset__h .fset__i,.fset__h .req{display:none}
+.fset--key .fset__h{display:flex; align-items:center; gap:.55rem; font-size:.8rem; font-weight:600; color:var(--fg)}
+.fset--key .fset__i{display:grid; place-items:center; width:28px; height:28px; border-radius:8px; flex:none;
+  color:var(--k); background:color-mix(in srgb,var(--k) 18%,transparent)}
+.fset--key .fset__i .ico{width:16px; height:16px}
+.fset--key .req{display:inline-flex; align-items:center; padding:.15rem .5rem; border-radius:999px;
+  font-size:.66rem; letter-spacing:.04em; font-weight:600; color:var(--k);
+  border:1px solid color-mix(in srgb,var(--k) 55%,transparent)}
+.fset--key .req.is-ok{color:var(--good); border-color:color-mix(in srgb,var(--good) 55%,transparent)}
 
 .flds{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.7rem}
 .flds--one{grid-template-columns:1fr; margin-top:.7rem}
@@ -4867,8 +4881,9 @@ export function renderManual({
     </div>`;
 
   const resendFieldset = edit ? '' : `
-    <div class="fset" id="rsfields" hidden>
-      <h3 class="fset__h">Barang yang sudah dikirim ke customer</h3>
+    <div class="fset fset--key fset--sent" id="rsfields" hidden>
+      <h3 class="fset__h"><span class="fset__i" aria-hidden="true">${svg('cube')}</span>
+        <span>Barang yang sudah dikirim ke customer</span><span class="req" data-req-wrong>Wajib diisi</span></h3>
       <p class="fld__hint rs__note">Barang di bawah ini yang terlanjur dikirim ke pelanggan. Sesuai SOP tidak ditarik kembali -
         jadi nilainya dibukukan ke Jurnal sebagai beban barang rusak, bukan sebagai penjualan. Barang yang ingin dikirim ulang
         di atas adalah penggantinya, dan itu gratis.</p>
@@ -4972,8 +4987,9 @@ export function renderManual({
               }</datalist>
             </div>
 
-            <div class="fset">
-              <h3 data-lines-h class="fset__h">Produk</h3>
+            <div class="fset" data-lines-set>
+              <h3 class="fset__h"><span class="fset__i" aria-hidden="true">${svg('truck')}</span>
+                <span data-lines-h>Produk</span><span class="req" data-req-lines>Wajib diisi</span></h3>
               <div class="lnh">
                 <span>Produk</span><span>Qty</span><span>Harga</span><span>Diskon</span><span>Subtotal</span><span></span>
               </div>
@@ -5134,6 +5150,13 @@ export function renderManual({
     return sum;
   }
 
+  /** The badge on a resend heading: still to do, or done. */
+  function markDone(badge, ok) {
+    if (!badge) return;
+    badge.classList.toggle('is-ok', ok);
+    badge.textContent = ok ? 'Sudah diisi' : 'Wajib diisi';
+  }
+
   /** At least one line that actually names something to put in the box. */
   function hasReplacement() {
     return Array.prototype.slice.call(lines.querySelectorAll('[data-row]'))
@@ -5156,6 +5179,7 @@ export function renderManual({
     form.querySelector('[data-wrong-row]').hidden = !on;
     form.querySelector('[data-total-label]').textContent = on ? 'Ditagih' : 'Total';
     form.querySelector('[data-lines-h]').textContent = on ? 'Barang yang ingin dikirim ulang' : 'Produk';
+    form.querySelector('[data-lines-set]').classList.toggle('fset--key', on);
     // "kirim ulang" never sends an invoice, and a button that says it does is the kind of
     // small lie somebody eventually repeats to an accountant.
     go.textContent = on ? 'Simpan kirim ulang' : go.dataset.sell;
@@ -5232,6 +5256,8 @@ export function renderManual({
     if (resending()) {
       var wrongValue = wrongTotal();
       form.querySelector('[data-sum-wrong]').textContent = rupiah(wrongValue);
+      markDone(form.querySelector('[data-req-lines]'), hasReplacement());
+      markDone(form.querySelector('[data-req-wrong]'), wrongValue > 0);
       /*
        * Nobody is charged for a resend, and the panel must not say otherwise.
        *
