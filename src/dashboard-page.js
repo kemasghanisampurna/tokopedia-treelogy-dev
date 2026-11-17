@@ -7081,6 +7081,9 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   // Only what a search has left on screen counts. A disabled row is not printed, so
   // counting it would promise a sheet that is not coming - nor is one handed to a packer.
   function visible() { return picks.filter(function (p) { return !p.disabled && !p.hasAttribute('data-held') && !p.hasAttribute('data-short'); }); }
+  // What "Pilih semua" reaches: every row on screen, the handed-out and short ones too -
+  // they are ticked for Tugaskan/Lepas, and the submit below keeps them out of a print.
+  function tickable() { return picks.filter(function (p) { return !p.disabled; }); }
 
   /*
    * A parcel handed to a packer can be ticked - to hand it to someone else, or take it
@@ -7109,14 +7112,16 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     var over = document.getElementById('over');
     if (go) go.disabled = n > ${MAX_PRESELECT} || n === 0;
     if (over) over.hidden = n <= ${MAX_PRESELECT};
-    head.checked = live.length > 0 && n === live.length;
-    head.indeterminate = n > 0 && n < live.length;
+    var all = tickable();
+    var on = all.filter(function (p) { return p.checked; }).length;
+    head.checked = all.length > 0 && on === all.length;
+    head.indeterminate = on > 0 && on < all.length;
     // One control, and it says what pressing it will do rather than what is true now.
-    var allOn = n > 0 && n === live.length;
+    var allOn = on > 0 && on === all.length;
     toggle.textContent = allOn ? 'Kosongkan semua' : 'Pilih semua';
     toggle.setAttribute('aria-pressed', allOn ? 'true' : 'false');
   }
-  function setAll(value) { visible().forEach(function (p) { p.checked = value; }); syncBatches(); sync(); }
+  function setAll(value) { tickable().forEach(function (p) { p.checked = value; }); syncBatches(); sync(); }
 
   // One checkbox per print run, on its heading. Reprinting a whole batch is the reason
   // this list is open, and ticking forty rows by hand to do it is not a feature.
