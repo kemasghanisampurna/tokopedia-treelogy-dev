@@ -49,3 +49,34 @@ export const figuresFor = (item, reserve, code) => {
   const claimed = Number(reserve?.items?.[code]) || 0;
   return { shelf, claimed, available: shelf - claimed };
 };
+
+/**
+ * What this order needs from the shelf that the shelf does not have.
+ *
+ * A packer cannot pack goods that are not there, and a label printed for a parcel that
+ * cannot be packed is a waybill the courier comes for with nothing to collect. Measured
+ * against "di rak" - what is physically there - through the same recipes the shelf uses.
+ * An order the shelf already counted (printed before) has taken its goods and is never
+ * short; a SKU no recipe knows is not guessed at.
+ *
+ * @returns {Array<{code, name, need, have}>} empty when the order can be packed
+ */
+export function shortagesFor(doc, order) {
+  if (!doc?.items || !order) return [];
+  const seen = doc.orders?.[`${order.channel}|${order.id}`];
+  if (seen && !seen.undone) return [];
+  const { items } = itemsForOrder(order, doc.recipes ?? {});
+  const short = [];
+  for (const [code, need] of Object.entries(items)) {
+    const item = doc.items[code];
+    if (!item) continue;
+    const have = Number(item.qty) || 0;
+    if (have < need) short.push({ code, name: item.name ?? code, need, have });
+  }
+  return short;
+}
+
+/** The one line a packer reads: "Stok di rak kurang: Capsules 90 (perlu 2, ada 0)". */
+export const shortageText = (short) => (short?.length
+  ? `Stok di rak kurang: ${short.map((x) => `${x.name} (perlu ${x.need}, ada ${Math.max(0, x.have)})`).join(', ')}`
+  : '');

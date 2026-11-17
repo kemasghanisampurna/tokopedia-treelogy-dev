@@ -9,6 +9,9 @@ import {
 import { recordActivity } from '../src/audit.js';
 import { can } from '../src/users.js';
 import { loadAssignments } from '../src/label-assign.js';
+import { loadWarehouse } from '../src/warehouse-run.js';
+import { shortagesFor, shortageText } from '../src/warehouse-reserve.js';
+import { ordersByIds } from '../src/db/orders.js';
 import { directPrinterFor } from '../src/direct-print.js';
 import { rasterizePdf } from '../src/label-raster.js';
 import { enqueueJob } from '../src/print-queue.js';
@@ -88,6 +91,16 @@ export default async function handler(req, res) {
     for (const [id, channel] of [...selected]) if (mine[`${channel}:${id}`]?.to !== user.email) selected.delete(id);
     if (selected.size === 0) {
       fail(403, 'Bukan tugasmu', 'Tidak ada pesanan yang ditugaskan kepadamu di pilihan ini.');
+      return;
+    }
+    // Goods that are not on the shelf cannot be packed; the label waits for them.
+    const [shelf, rows] = await Promise.all([
+      loadWarehouse().catch(() => null),
+      ordersByIds([...selected].map(([id, channel]) => ({ channel, id }))).catch(() => []),
+    ]);
+    const short = (Array.isArray(rows) ? rows : rows?.orders ?? []).map((o) => ({ o, short: shortagesFor(shelf, o) })).filter((x) => x.short.length);
+    if (short.length) {
+      fail(409, 'Stok di rak kurang', `${short[0].o.id}: ${shortageText(short[0].short)}`);
       return;
     }
   }

@@ -68,3 +68,23 @@ test('whoever may write gets the hand-out tools, the chip on the row and a pile 
   const noPackers = renderLabels({ ...base, user: agas, orders: [order('#1', 'Wiwiek')], assignments: null, packers: [] });
   assert.doesNotMatch(noPackers, /class="filters lb-packers"/, "no packers, no piles");
 });
+
+test('a parcel the shelf cannot fill cannot be printed, and says what is missing', async () => {
+  const { shortagesFor, shortageText } = await import('../src/warehouse-reserve.js');
+  const { recipeOf } = await import('../src/warehouse.js');
+  const code = Object.keys(recipeOf('OMC-90-001'))[0];
+  const shelf = { items: { [code]: { name: 'Organic Moringa Capsules 90', qty: 1 } }, orders: {}, recipes: {} };
+  const o = order('#1', 'Wiwiek');                                   // 2 x OMC-90-001
+  assert.deepEqual(shortagesFor(shelf, o), [{ code, name: 'Organic Moringa Capsules 90', need: 2, have: 1 }]);
+  assert.equal(shortageText(shortagesFor(shelf, o)), 'Stok di rak kurang: Organic Moringa Capsules 90 (perlu 2, ada 1)');
+  assert.deepEqual(shortagesFor({ ...shelf, items: { [code]: { name: 'x', qty: 5 } } }, o), []);
+  assert.deepEqual(shortagesFor({ ...shelf, orders: { 'shopify|#1': { picked: 1 } } }, o), [], 'already taken off the shelf');
+  assert.equal(shortageText(shortagesFor({ ...shelf, items: { [code]: { name: 'C90', qty: -143 } } }, o)), 'Stok di rak kurang: C90 (perlu 2, ada 0)');
+  const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [o], assignments, packers: [packer], shelf });
+  assert.match(html, /class="pq__row is-short"/);
+  assert.match(html, /data-print="shopify:#1" disabled/);
+  assert.match(html, /Stok kosong/);
+  assert.match(html, /pq__short" role="note">.*Stok di rak kurang: Organic Moringa Capsules 90 \(perlu 2, ada 1\)/s);
+  const fine = renderLabels({ ...base, user: packer, isPacker: true, orders: [o], assignments, packers: [packer], shelf: { ...shelf, items: { [code]: { name: 'x', qty: 9 } } } });
+  assert.doesNotMatch(fine, /data-print="shopify:#1" disabled/);
+});

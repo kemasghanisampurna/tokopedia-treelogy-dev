@@ -2669,6 +2669,7 @@ export default async function handler(req, res) {
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
         bench, assignments, packers, packerFilter, isPacker, images: isPacker ? await imagesByKey() : {},
+        shelf: isPacker ? await cached('warehouse', 15_000, () => loadWarehouse(), SWR).catch(() => null) : null,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

@@ -17,6 +17,7 @@ import { REVIEW_CHANNELS } from './reviews/combined.js';
 import { paginate, pageHref, pageWindow, PER_PAGE_OPTIONS, DEFAULT_PER_PAGE } from './paging.js';
 import { can, canView, homeView, ROLES } from './users.js';
 import { assignmentFor } from './label-assign.js';
+import { shortagesFor, shortageText } from './warehouse-reserve.js';
 import { phoneForCourier } from './phone.js';
 
 /** Server-rendered omnichannel dashboard. No secrets and no user input reach the markup unescaped. */
@@ -861,6 +862,10 @@ ${DIRECT_PRINT_CSS}
 .pq__sum{font-size:.85rem; color:var(--muted)}
 .pq__go{min-height:48px; min-width:96px; justify-content:center; font-size:1rem; cursor:pointer}
 .pq__go:disabled{cursor:default}
+.pq__row.is-short{border-color:color-mix(in srgb, var(--bad) 45%, var(--line))}
+.pq__row.is-short .pq__go{background:transparent; color:var(--dim); border:1px solid var(--line); box-shadow:none; opacity:1}
+.pq__short{display:flex; align-items:flex-start; gap:.4rem; margin-top:.35rem; color:var(--bad); font-size:.85rem; line-height:1.35}
+.pq__short .ico{width:16px; height:16px; flex:none; margin-top:.1rem}
 .pq__sheet{width:min(560px, 100%); max-height:90dvh; margin:auto auto 0; padding:0; border:0; border-radius:20px 20px 0 0; background:var(--panel); color:var(--fg); box-shadow:0 -20px 60px rgba(0,0,0,.5)}
 @media (min-width:700px){.pq__sheet{margin:auto; border-radius:20px}}
 .pq__sheet:focus,.pq__sheet:focus-visible{outline:none}
@@ -6233,7 +6238,7 @@ function photoFor(images, sku) {
  * ticking, no batches. Pressing it opens a sheet that shows what goes into this box,
  * with pictures, and follows the label until it is on paper.
  */
-function packerBody({ rows, bench, csrf, size, images }) {
+function packerBody({ rows, bench, csrf, size, images, shelf = null }) {
   const online = Boolean(bench?.online);
   const printerName = bench?.agent?.name || 'printer gudang';
   const list = rows.map(({ order: o, readiness }) => {
@@ -6241,15 +6246,18 @@ function packerBody({ rows, bench, csrf, size, images }) {
     const units = lines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
     const goods = lines.map((l) => ({ name: l.name || l.sku, variant: l.variant || '', qty: Number(l.qty) || 0, sku: l.sku || '', img: photoFor(images, l.sku) }));
     const key = `${o.channel}:${o.id}`;
-    const gone = Boolean(readiness.unavailable);
-    return `<li class="pq__row" data-key="${escape(key)}" data-state="todo">
+    // Nothing on the shelf to pack: no label, and the row says what is missing.
+    const short = shortagesFor(shelf, o);
+    const gone = Boolean(readiness.unavailable) || short.length > 0;
+    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-state="${short.length ? 'short' : 'todo'}">
       <div class="pq__main">
         <div class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></div>
         <div class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</div>
         <div class="pq__sum">${units} barang &middot; ${lines.length} produk${readiness.changed ? ' &middot; <span class="stop">data berubah</span>' : ''}</div>
+        ${short.length ? `<div class="pq__short" role="note">${svg('warn')}<span>${escape(shortageText(short))}</span></div>` : ''}
       </div>
       <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
-        <span class="pq__go-t">Cetak</span>
+        <span class="pq__go-t">${short.length ? 'Stok kosong' : 'Cetak'}</span>
       </button>
       <script type="application/json" class="pq__goods">${JSON.stringify(goods).replace(/</g, '\\u003c')}</script>
     </li>`;
@@ -6410,7 +6418,7 @@ const PACKER_SCRIPT = `
 })();
 `;
 
-export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, images = {}, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
+export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, images = {}, shelf = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
   // took are a deliberate detour, not clutter in the daily view.
@@ -6676,7 +6684,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   if (isPacker) {
     return shell({ user, csrf, title: 'Label', range, errors, shopeeShop, generatedAt, view: 'labels',
       hideRangeControls: true, scope: 'tugasmu', readAt, settleFailed, flash, hideHead: true, kpis: '',
-      body: packerBody({ rows: candidates, bench, csrf, size: defaultSize, images }),
+      body: packerBody({ rows: candidates, bench, csrf, size: defaultSize, images, shelf }),
       script: PACKER_SCRIPT });
   }
   // The print log, as the Stok page offers its movement log: a Download in the page head.
