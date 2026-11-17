@@ -108,7 +108,7 @@ export const svg = (name, cls = '') =>
 export const VIEWS = {
   orders: 'Pesanan', process: 'Proses', picklist: 'Picklist', labels: 'Label',
   stock: 'Stok', products: 'Produk', forecast: 'Prakiraan', reviews: 'Ulasan',
-  users: 'Pengguna',
+  agent: 'AI Agent', users: 'Pengguna',
 };
 
 /**
@@ -127,13 +127,13 @@ const TAB_PERMISSION = { users: 'users' };
  * Menus whose actions write something, and therefore have a log of their own. The log
  * button sits in the tab row of exactly these; a read-only menu has nothing to show.
  */
-export const LOGGED_MENUS = new Set(['process', 'labels', 'stock', 'products', 'jurnal', 'users', 'reviews']);
+export const LOGGED_MENUS = new Set(['process', 'labels', 'stock', 'products', 'jurnal', 'users', 'reviews', 'agent']);
 
 function viewNav(current, rangeQuery, user = null, { log = false } = {}) {
   const tabs = Object.entries(VIEWS)
     .filter(([id]) => (!TAB_PERMISSION[id] || can(user, TAB_PERMISSION[id])) && (!user || canView(user, id)))
     .map(([id, label]) => {
-      const query = id === 'products' || id === 'users' ? `?view=${id}` : `?view=${id}${rangeQuery}`;
+      const query = id === 'products' || id === 'users' || id === 'agent' ? `?view=${id}` : `?view=${id}${rangeQuery}`;
       const count = Number(user?.badges?.[id]) || 0;
       const badge = count ? `<span class="viewtab__n" title="${count} perlu konfirmasi">${count > 99 ? '99+' : count}</span>` : '';
       return `<a class="viewtab ${id === current ? 'is-on' : ''}" href="${escape(query)}">${escape(label)}${badge}</a>`;

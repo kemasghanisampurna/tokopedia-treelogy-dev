@@ -23,7 +23,7 @@ const MAX_TEXT = 300;
 /** Menus as the activity page names them. Keys match the dashboard's `view` ids. */
 export const MENUS = {
   orders: 'Pesanan', process: 'Proses', picklist: 'Picklist', labels: 'Label', stock: 'Stok',
-  products: 'Produk', jurnal: 'Jurnal', forecast: 'Prakiraan', reviews: 'Ulasan',
+  products: 'Produk', jurnal: 'Jurnal', forecast: 'Prakiraan', reviews: 'Ulasan', agent: 'AI Agent',
   users: 'Pengguna', auth: 'Masuk', activity: 'Aktivitas',
 };
 

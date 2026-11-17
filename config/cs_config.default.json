@@ -1,0 +1,27 @@
+{
+  "free_shipping": {
+    "min_amount": 700000,
+    "scope": "Khusus pembelian di website treelogy.com, seluruh Indonesia"
+  },
+  "promos": [
+    {
+      "id": "first_purchase_10",
+      "name": "Potongan pembelian pertama",
+      "detail": "Potongan 10% untuk pembelian pertama. Daftar email lewat pop-up di treelogy.com, kode voucher dikirim otomatis ke email.",
+      "code": null,
+      "starts_at": null,
+      "ends_at": null
+    }
+  ],
+  "vouchers": [
+    {
+      "id": "hargatetap",
+      "name": "Voucher harga lama",
+      "code": "HARGATETAP",
+      "detail": "Khusus customer yang pernah order sebelumnya. Maksimal 3x pesanan, semua produk, tanpa minimum. Checkout di treelogy.com, pakai email pesanan sebelumnya, masukkan kode di kolom discount.",
+      "starts_at": null,
+      "ends_at": "2026-11-30"
+    }
+  ],
+  "gifts": []
+}

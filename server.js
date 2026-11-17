@@ -24,6 +24,8 @@ const ROUTES = {
   '/api/print-agent': './api/print-agent.js',
   '/api/export': './api/export.js',
   '/api/status': './api/status.js',
+  // Read by the Qontak WhatsApp AI agent (action get_catalog); edited on the AI Agent menu.
+  '/api/catalog': './api/catalog.js',
   '/api/events': './api/events.js',
   '/api/alert-test': './api/alert-test.js',
   '/api/callback': './api/callback.js',

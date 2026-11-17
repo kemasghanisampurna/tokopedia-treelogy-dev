@@ -5,6 +5,10 @@ import { saveOrders } from '../src/db/orders.js';
 import { renderDashboard, renderPicklist, renderProducts, renderLabels, renderLabelLookup, renderProcess, renderStock, renderJurnal, renderManual, renderForecast, renderReviews, renderExpressLog, renderLogin, dashboardError, renderOrderPicks, VALID_VIEWS } from '../src/dashboard-page.js';
 import { renderUsers } from '../src/pages/users.js';
 import { renderActivity } from '../src/pages/activity.js';
+import { renderAgent } from '../src/pages/agent.js';
+import { loadCatalog, forgetStorefront } from '../src/agent/service.js';
+import { loadAgentConfig, saveShipping, saveItem, deleteItem } from '../src/agent/config-store.js';
+import { KINDS as AGENT_KINDS, witaToday, rupiahText as agentRupiah } from '../src/agent/catalog.js';
 import { can, canView, homeView, listUsers, inviteUser, renewInvite, updateUser, removeUser, touchLogin, ROLES, STATUS } from '../src/users.js';
 import { recordActivity, readActivity, actorsIn, MENUS } from '../src/audit.js';
 import { sendMail, isSmtpConfigured } from '../src/mail/smtp.js';
@@ -397,6 +401,7 @@ const ACTION_MENU = {
   mass_arrange: 'process', fulfil: 'process', mekari_sync: 'jurnal', manual_invoice: 'jurnal',
   label_printed: 'labels', label_assign: 'labels', label_unassign: 'labels', reviews_sync: 'reviews', refresh_order: 'orders', refund_order: 'orders', discard_manual: 'jurnal',
   manual_update: 'jurnal',
+  agent_shipping: 'agent', agent_item_save: 'agent', agent_item_delete: 'agent',
   user_invite: 'users', user_resend: 'users', user_role: 'users', user_status: 'users', user_delete: 'users',
 };
 const USER_ACTIONS = new Set(['user_invite', 'user_resend', 'user_role', 'user_status', 'user_delete']);
@@ -525,6 +530,63 @@ async function pickupStep({ user, csrf, eligible, waiting, plans, chosen }) {
   });
 }
 
+/** Field names as the activity log shows them. */
+const AGENT_FIELDS = { name: 'nama', code: 'kode', detail: 'keterangan', starts_at: 'mulai', ends_at: 'berakhir', applies_to: 'produk', url: 'tautan' };
+const agentValue = (value) => (Array.isArray(value) ? value.join(', ') || 'semua produk' : value ?? '—');
+
+/**
+ * The AI Agent menu's three writes. They only ever touch our own store - never Shopify,
+ * never a marketplace - and what they change is what the WhatsApp bot says next.
+ */
+async function handleAgentWrite(action, form, user) {
+  const by = { id: user.id, name: user.name, email: user.email };
+  if (action === 'agent_shipping') {
+    const out = await saveShipping({ min_amount: form.get('min_amount'), scope: form.get('scope') }, by);
+    if (!out.changed) return { view: 'agent', message: 'Gratis ongkir tidak berubah' };
+    const changes = [];
+    if (out.before.min_amount !== out.after.min_amount) changes.push({ field: 'minimal belanja', from: agentRupiah(out.before.min_amount), to: agentRupiah(out.after.min_amount) });
+    if (out.before.scope !== out.after.scope) changes.push({ field: 'berlaku untuk', from: out.before.scope, to: out.after.scope });
+    return {
+      view: 'agent', message: `Gratis ongkir disimpan: minimal ${agentRupiah(out.after.min_amount)}`,
+      audit: { menu: 'agent', verb: 'edit', target: 'gratis ongkir', summary: `Gratis ongkir bot: minimal ${agentRupiah(out.after.min_amount)}`, changes },
+    };
+  }
+
+  const kind = String(form.get('kind') ?? '');
+  if (!Object.hasOwn(AGENT_KINDS, kind)) throw new Error('jenis penawaran tidak dikenal');
+  const one = AGENT_KINDS[kind].one;
+
+  if (action === 'agent_item_delete') {
+    const id = String(form.get('id') ?? '');
+    const out = await deleteItem(kind, id, by);
+    return {
+      view: 'agent', message: `${AGENT_KINDS[kind].label} "${out.before.name}" dihapus`,
+      audit: { menu: 'agent', verb: 'delete', target: `${one} ${out.before.id}`, summary: `Menghapus ${one} "${out.before.name}" dari bot`,
+        changes: Object.entries(AGENT_FIELDS).filter(([key]) => key in out.before).map(([key, field]) => ({ field, from: agentValue(out.before[key]) })) },
+    };
+  }
+
+  const raw = {
+    name: form.get('name'), code: form.get('code'), detail: form.get('detail'),
+    starts_at: form.get('starts_at'), ends_at: form.get('ends_at'),
+    applies_to: form.getAll('applies_to'), url: form.get('url'),
+  };
+  const originalId = String(form.get('original_id') ?? '').trim();
+  const out = await saveItem(kind, raw, originalId, by);
+  if (!out.changed) return { view: 'agent', message: `${AGENT_KINDS[kind].label} "${out.after.name}" tidak berubah` };
+  const changes = Object.entries(AGENT_FIELDS)
+    .filter(([key]) => key in out.after && JSON.stringify(out.before?.[key] ?? null) !== JSON.stringify(out.after[key] ?? null))
+    .map(([key, field]) => ({ field, ...(out.before ? { from: agentValue(out.before[key]) } : {}), to: agentValue(out.after[key]) }));
+  return {
+    view: 'agent',
+    message: `${AGENT_KINDS[kind].label} "${out.after.name}" ${out.before ? 'disimpan' : 'ditambahkan'}`,
+    audit: {
+      menu: 'agent', verb: out.before ? 'edit' : 'add', target: `${one} ${out.after.id}`,
+      summary: `${out.before ? 'Mengubah' : 'Menambah'} ${one} "${out.after.name}" untuk bot`, changes,
+    },
+  };
+}
+
 export async function handleWrite(form, ip, user, csrf) {
   // The row's own "lepas" button carries its order instead of an action.
   const action = form.get('unassign') ? 'label_unassign' : form.get('action');
@@ -534,6 +596,10 @@ export async function handleWrite(form, ip, user, csrf) {
     if (!can(user, 'users')) throw new Error('hanya admin yang bisa mengelola pengguna');
   } else if (!can(user, 'write')) {
     throw new Error(`peran ${ROLES[user.role]?.label ?? user.role} hanya bisa melihat, tidak mengubah`);
+  }
+
+  if (action === 'agent_shipping' || action === 'agent_item_save' || action === 'agent_item_delete') {
+    return handleAgentWrite(action, form, user);
   }
 
   if (action === 'ledger') {
@@ -2303,6 +2369,19 @@ export default async function handler(req, res) {
       console.log(`dashboard/users: ${users.length} pengguna`);
       send(200, renderUsers({
         users, me: user, smtpReady: isSmtpConfigured(), range, errors: {}, shopeeShop: null, generatedAt: Date.now(), csrf, flash,
+      }));
+      return;
+    }
+
+    if (view === 'agent') {
+      // "Ambil harga" drops the cached storefront read, so the preview is treelogy.com now.
+      if (url.searchParams.has('fresh')) forgetStorefront();
+      const meta = await loadAgentConfig();
+      const catalog = await loadCatalog({ config: async () => meta });
+      console.log(`dashboard/agent: katalog ${catalog.status}, config ${meta.source}`);
+      send(200, renderAgent({
+        catalog, meta, endpoint: `${publicBaseUrl()}/api/catalog`, keyed: Boolean(process.env.CATALOG_API_KEY),
+        today: catalog.today ?? witaToday(), user, csrf, flash, range, errors: {}, shopeeShop: null, generatedAt: Date.now(),
       }));
       return;
     }
