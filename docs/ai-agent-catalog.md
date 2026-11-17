@@ -8,7 +8,7 @@ action `get_catalog`; edited on the dashboard's **AI Agent** menu.
 | Data | Source | Fresh after |
 |---|---|---|
 | Prices, compare-at, stock of 17 variants | `https://treelogy.com/products.json?limit=250` (public) | ≤ 1 minute (in-process cache, 10 min stale on failure) |
-| Free shipping, promos, vouchers, gifts | store doc `agent/cs-config.json`, edited on **AI Agent** | the next call |
+| Free shipping, promos, vouchers, gifts (gifts per variant, edited on the product row) | store doc `agent/cs-config.json`, edited on **AI Agent** | the next call |
 | Fallback when the store is empty, unreadable or invalid | `config/cs_config.default.json` (`config_source: "fallback"`) | — |
 
 Only the 17 rows in `VARIANT_MAP` (`src/agent/catalog.js`) count: pinned variant id first, title

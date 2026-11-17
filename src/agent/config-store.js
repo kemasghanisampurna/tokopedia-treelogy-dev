@@ -89,7 +89,9 @@ export async function saveShipping(raw, by, options) {
  */
 export async function saveItem(kind, raw, originalId, by, options) {
   if (!Object.hasOwn(KINDS, kind)) throw new Error('jenis penawaran tidak dikenal');
-  const draft = cleanItem(kind, { ...raw, id: originalId || slugId(raw?.name) });
+  // A gift for one variant is named after it ("hadiah_kapsul_270"), so the id says what it is.
+  const one = kind === 'gifts' && Array.isArray(raw?.applies_to) && raw.applies_to.length === 1 ? `hadiah_${raw.applies_to[0]}` : null;
+  const draft = cleanItem(kind, { ...raw, id: originalId || one || slugId(raw?.name) });
   let missing = false;
   const out = await mutate((config) => {
     const list = config[kind];

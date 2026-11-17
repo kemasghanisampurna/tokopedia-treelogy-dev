@@ -120,7 +120,7 @@ const text = (value, max) => {
 
 /** A safe id from a name: "Voucher harga lama" → "voucher_harga_lama". */
 export function slugId(name) {
-  const slug = normalizeTitle(name).normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+  const slug = normalizeTitle(name).normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40).replace(/_+$/, '');
   return slug.length >= 2 ? slug : `item_${Date.now().toString(36)}`;
 }
 
@@ -248,6 +248,9 @@ export function catalogProducts(storefrontProducts) {
   return { products, warnings };
 }
 
+/** The gifts that come with one variant. An empty `applies_to` means every product. */
+export const giftsFor = (gifts, key) => (gifts ?? []).filter((g) => !g.applies_to?.length || g.applies_to.includes(key));
+
 const forBot = {
   promos: ({ id, name, detail, code, ends_at }) => ({ id, name, detail, code, ends_at }),
   vouchers: ({ id, name, code, detail, ends_at }) => ({ id, name, code, detail, ends_at }),
@@ -261,8 +264,14 @@ const forBot = {
  */
 export function buildCatalog({ storefrontProducts, config, configSource, now = new Date() }) {
   const today = witaToday(now);
-  const { products, warnings } = catalogProducts(storefrontProducts);
+  const { products: rows, warnings } = catalogProducts(storefrontProducts);
   const offers = Object.fromEntries(Object.keys(KINDS).map((kind) => [kind, activeItems(config[kind], today).map(forBot[kind])]));
+  // A gift belongs to the variant it comes with, so the row the bot quotes a price from
+  // already says what comes free with it; the details stay in `gifts`.
+  const products = rows.map(({ url, ...row }) => {
+    const gifts = giftsFor(offers.gifts, row.key);
+    return { ...row, gift: gifts.length ? gifts.map((g) => g.name).join(' + ') : null, url };
+  });
   return {
     body: {
       ok: true,

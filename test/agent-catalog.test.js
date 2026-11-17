@@ -137,6 +137,20 @@ test('the response follows the brief: amounts as numbers and text, gift_active, 
   assert.ok(!JSON.stringify(body).includes('body_html'));
 });
 
+test('a gift rides on its variant row: products[].gift names it, only while it is active', () => {
+  const config = { ...defaultConfig(), gifts: [
+    { id: 'hadiah_kapsul_270', name: 'Gratis Moringa Seed Oil 3 ml', detail: 'x', applies_to: ['kapsul_270'], url: null, starts_at: null, ends_at: null },
+    { id: 'hadiah_insideout_60', name: 'Gratis Travel Pouch', detail: 'x', applies_to: ['insideout_60'], url: null, starts_at: null, ends_at: '2026-11-16' },
+  ] };
+  const { body } = buildCatalog({ storefrontProducts: storefront(), config, configSource: 'dashboard', now: NOV17 });
+  const row = (key) => body.products.find((p) => p.key === key);
+  assert.equal(row('kapsul_270').gift, 'Gratis Moringa Seed Oil 3 ml');
+  assert.equal(row('insideout_60').gift, null, 'hadiah yang sudah berakhir tidak dikirim');
+  assert.equal(row('kapsul_90').gift, null);
+  assert.deepEqual(body.gifts.map((g) => g.id), ['hadiah_kapsul_270']);
+  assert.deepEqual(Object.keys(row('kapsul_90')), ['key', 'name', 'price', 'price_text', 'compare_at_price_text', 'available', 'gift', 'url']);
+});
+
 test('a missing, broken or unreadable stored config falls back to the defaults and says so', async () => {
   assert.equal((await loadAgentConfig()).source, 'fallback', 'belum pernah disimpan');
   await writeDoc(CONFIG_DOC, { version: 1, config: { free_shipping: { min_amount: 'banyak' } } });
@@ -157,6 +171,7 @@ test('validation refuses what would confuse the bot', () => {
   assert.equal(cleanItem('vouchers', { id: 'v1', name: 'V', detail: 'x', code: 'hargatetap' }).code, 'HARGATETAP');
   assert.throws(() => validateConfig({ ...defaultConfig(), promos: [defaultConfig().promos[0], defaultConfig().promos[0]] }), /dua kali/);
   assert.equal(slugId('Voucher harga lama!'), 'voucher_harga_lama');
+  assert.ok(!slugId('Gratis Moringa Seed Oil 3 ml di halaman promo').endsWith('_'), 'tidak berakhir garis bawah setelah dipotong');
 });
 
 test('saving stores a whole valid config, with who saved it, and edits and deletes by id', async () => {
@@ -165,21 +180,21 @@ test('saving stores a whole valid config, with who saved it, and edits and delet
   assert.equal(ship.changed, true);
   assert.equal(ship.before.min_amount, 700000);
   const added = await saveItem('gifts', { name: 'Travel Pouch', detail: 'Gratis pouch.', applies_to: ['insideout_60'] }, '', by);
-  assert.equal(added.after.id, 'travel_pouch');
-  const again = await saveItem('gifts', { name: 'Travel Pouch', detail: 'Lagi.' }, '', by);
-  assert.equal(again.after.id, 'travel_pouch_2', 'id yang sudah dipakai diberi nomor');
+  assert.equal(added.after.id, 'hadiah_insideout_60', 'hadiah satu varian dinamai menurut variannya');
+  const again = await saveItem('gifts', { name: 'Travel Pouch', detail: 'Lagi.', applies_to: ['insideout_60'] }, '', by);
+  assert.equal(again.after.id, 'hadiah_insideout_60_2', 'id yang sudah dipakai diberi nomor');
   const edited = await saveItem('vouchers', { name: 'Voucher harga lama', code: 'HARGATETAP', detail: 'Baru.', ends_at: '2026-12-15' }, 'hargatetap', by);
   assert.equal(edited.before.ends_at, '2026-11-30');
   assert.equal(edited.after.ends_at, '2026-12-15');
-  await deleteItem('gifts', 'travel_pouch_2', by);
-  await assert.rejects(() => deleteItem('gifts', 'travel_pouch_2', by), /sudah tidak ada/);
+  await deleteItem('gifts', 'hadiah_insideout_60_2', by);
+  await assert.rejects(() => deleteItem('gifts', 'hadiah_insideout_60_2', by), /sudah tidak ada/);
 
   const stored = await readDoc(CONFIG_DOC);
   assert.equal(stored.updatedBy.name, 'Dewi');
   const loaded = await loadAgentConfig();
   assert.equal(loaded.source, 'dashboard');
   assert.equal(loaded.config.free_shipping.min_amount, 650000);
-  assert.deepEqual(loaded.config.gifts.map((g) => g.id), ['travel_pouch']);
+  assert.deepEqual(loaded.config.gifts.map((g) => g.id), ['hadiah_insideout_60']);
 });
 
 /* ------------------------------------------------------------------ endpoint */
@@ -279,6 +294,9 @@ test('the AI Agent page asks before every write and escapes what people typed', 
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.match(html, /Rp 1\.045\.000/);
   assert.match(html, /CATALOG_API_KEY<\/code> belum disetel/);
+  assert.match(html, /data-ag-new="gifts" data-for="kapsul_90"/, 'baris varian punya tombol tambah hadiah');
+  assert.ok(!html.includes('id="ag-h-gifts"'), 'hadiah tidak lagi punya bagian terpisah');
+  assert.match(html, /<form method="post" id="ag-ed-del" data-confirm-text=/);
   for (const [, body] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(body);
 
   const readOnly = renderAgent({ catalog, meta, endpoint: 'x', keyed: true, today: '2026-11-17', user: viewer, csrf: 'c', flash: null, range, errors: {}, shopeeShop: null, generatedAt: Date.now() });

@@ -1,6 +1,6 @@
 import { shell, svg, escape } from '../dashboard-page.js';
 import { can } from '../users.js';
-import { KINDS, VARIANT_MAP, itemStatus, rupiahText } from '../agent/catalog.js';
+import { KINDS, VARIANT_MAP, itemStatus, rupiahText, giftsFor } from '../agent/catalog.js';
 
 /**
  * The AI Agent tab: what the WhatsApp bot on Qontak is allowed to say about prices and
@@ -135,19 +135,45 @@ function shippingCard({ shipping, csrf, editable }) {
   </section>`;
 }
 
-function previewPanel({ catalog, warnings, endpoint, keyed, today }) {
+/**
+ * The gifts on one product row. A gift belongs to the variant it comes with, so it is
+ * edited right here; the bot gets it as the row's `gift` and in `gifts`.
+ */
+function rowGifts({ key, name, gifts, today, editable }) {
+  const own = giftsFor(gifts, key);
+  const chips = own.map((g) => {
+    const status = itemStatus(g, today);
+    const s = STATUS[status];
+    const when = g.ends_at || g.starts_at ? ` · ${period(g)}` : '';
+    const label = `<span class="ag-gift__ico">${ico('gifts')}</span><span class="ag-gift__t">${escape(g.name)}</span>${status === 'active' ? '' : `<span class="ag-gift__st">${s.label}</span>`}`;
+    return editable
+      ? `<button type="button" class="ag-gift ag-gift--${status}" data-ag-edit data-kind="gifts" data-item="${escape(JSON.stringify(g))}" data-for="${key}" data-variant="${escape(name)}"
+          title="${escape(`${s.label} - ${s.note}${when}`)}" aria-label="Ubah hadiah ${escape(g.name)} untuk ${escape(name)}">${label}${svg('pencil')}</button>`
+      : `<span class="ag-gift ag-gift--${status}" title="${escape(`${s.label} - ${s.note}${when}`)}">${label}</span>`;
+  }).join('');
+  const add = editable
+    ? `<button type="button" class="ag-gift ag-gift--add" data-ag-new="gifts" data-for="${key}" data-variant="${escape(name)}" aria-label="Tambah hadiah untuk ${escape(name)}">${svg('plus')}<span>Hadiah</span></button>`
+    : '';
+  return chips || add ? `<span class="ag-gifts">${chips}${own.length ? '' : add}</span>` : '';
+}
+
+function previewPanel({ catalog, warnings, endpoint, keyed, today, gifts, editable }) {
   if (catalog.status !== 200) {
     return `<section class="panel ag-bot" aria-labelledby="ag-h-bot">
       <header class="ag-bot__head"><h3 id="ag-h-bot">${ico('bot')}Yang dibaca bot</h3></header>
       <div class="alert">${svg('warn')}<span>treelogy.com/products.json tidak terjangkau. Bot saat ini menerima <code>catalog_unavailable</code> dan diarahkan untuk tidak menebak harga.</span>
         <a class="alert__btn" href="?view=agent&amp;fresh=1">${svg('refresh')}Coba lagi</a></div>
+      <div class="ag-bot__scroll"><table class="ag-p">
+        <thead><tr><th>Produk &amp; hadiah</th></tr></thead>
+        <tbody>${VARIANT_MAP.map((row) => `<tr><td><span class="ag-p__n">${escape(row.name)}</span><span class="ag-p__k mono">${escape(row.key)}</span>${rowGifts({ key: row.key, name: row.name, gifts, today, editable })}</td></tr>`).join('')}</tbody>
+      </table></div>
     </section>`;
   }
   const body = catalog.body;
   const json = JSON.stringify(body, null, 2);
   const size = Buffer.byteLength(JSON.stringify(body));
   const rows = body.products.map((p) => `<tr class="${p.available ? '' : 'is-off'}">
-      <td><span class="ag-p__n">${escape(p.name)}</span><span class="ag-p__k mono">${escape(p.key)}</span></td>
+      <td><span class="ag-p__n">${escape(p.name)}</span><span class="ag-p__k mono">${escape(p.key)}</span>${rowGifts({ key: p.key, name: p.name, gifts, today, editable })}</td>
       <td class="num nowrap"><span class="ag-p__price mono">${p.price_text ? escape(p.price_text) : '—'}</span>${p.compare_at_price_text ? `<s class="ag-p__was mono" aria-label="harga coret">${escape(p.compare_at_price_text)}</s>` : ''}</td>
       <td class="num"><span class="ag-st ag-st--${p.available ? 'good' : 'bad'}"><i aria-hidden="true"></i>${p.available ? 'Tersedia' : 'Habis'}</span></td>
     </tr>`).join('');
@@ -159,7 +185,7 @@ function previewPanel({ catalog, warnings, endpoint, keyed, today }) {
     <header class="ag-bot__head">
       <div>
         <h3 id="ag-h-bot">${ico('bot')}Yang dibaca bot sekarang</h3>
-        <p>Hari ini ${escape(day(today))} (WITA) &middot; harga dari treelogy.com, diperbarui tiap menit</p>
+        <p>Hari ini ${escape(day(today))} (WITA) &middot; harga dari treelogy.com, diperbarui tiap menit &middot; hadiah dipasang per varian di tabel ini</p>
       </div>
       <a class="ag-btn" href="?view=agent&amp;fresh=1" title="Ambil ulang harga dari treelogy.com">${svg('refresh')}<span>Ambil harga</span></a>
     </header>
@@ -193,7 +219,6 @@ function previewPanel({ catalog, warnings, endpoint, keyed, today }) {
 }
 
 function editorDialog(csrf) {
-  const productBoxes = VARIANT_MAP.map((row) => `<label class="ag-chk"><input type="checkbox" name="applies_to" value="${row.key}"><span>${escape(row.name)}</span></label>`).join('');
   return `<dialog class="ag-ed" id="ag-ed" aria-labelledby="ag-ed-title">
     <form method="post" class="ag-ed__form" id="ag-ed-form" data-confirm="Simpan?">
       ${hidden(csrf, 'agent_item_save')}
@@ -225,8 +250,9 @@ function editorDialog(csrf) {
         </div>
         <p class="fld__hint ag-ed__note">Kosong berarti tanpa batas. Tanggal dibaca dalam WITA dan ikut dihitung: berakhir 30 Nov masih tampil sepanjang 30 Nov.</p>
         <fieldset class="ag-ed__gift" id="ag-f-gift">
-          <legend>Berlaku untuk produk <span class="dim">(kosong = semua)</span></legend>
-          <div class="ag-chks">${productBoxes}</div>
+          <legend>Menempel ke varian</legend>
+          <p class="ag-ed__variant" id="ag-f-variant"></p>
+          <span id="ag-f-applies"></span>
           <div class="fld">
             <label for="ag-f-url">Tautan halaman promo <span class="dim">(opsional)</span></label>
             <input id="ag-f-url" name="url" type="url" maxlength="300" placeholder="https://treelogy.com/pages/...">
@@ -234,9 +260,13 @@ function editorDialog(csrf) {
         </fieldset>
       </div>
       <footer class="ag-ed__foot">
+        <button class="ag-btn ag-btn--bad um__act--bad ag-ed__del" type="submit" form="ag-ed-del" id="ag-ed-delbtn" hidden>${svg('trash')}<span>Hapus hadiah</span></button>
         <button class="ag-btn" type="button" data-ag-close>Batal</button>
         <button class="ag-go" type="submit">${svg('check')}<span id="ag-ed-go">Simpan</span></button>
       </footer>
+    </form>
+    <form method="post" id="ag-ed-del" data-confirm-text="Hapus hadiah ini?">
+      ${hidden(csrf, 'agent_item_delete')}<input type="hidden" name="kind" value="gifts"><input type="hidden" name="id" id="ag-ed-del-id" value="">
     </form>
   </dialog>`;
 }
@@ -270,9 +300,9 @@ export function renderAgent({ catalog, meta, endpoint, keyed, today, user, csrf,
   const body = `${readOnly}<div class="ag">
     <div class="ag__main">
       ${shippingCard({ shipping: config.free_shipping, csrf, editable })}
-      ${Object.keys(KINDS).map((kind) => kindSection({ kind, items: config[kind], today, csrf, editable })).join('')}
+      ${['promos', 'vouchers'].map((kind) => kindSection({ kind, items: config[kind], today, csrf, editable })).join('')}
     </div>
-    <aside class="ag__side">${previewPanel({ catalog, warnings: catalog.warnings ?? [], endpoint, keyed, today })}</aside>
+    <aside class="ag__side">${previewPanel({ catalog, warnings: catalog.warnings ?? [], endpoint, keyed, today, gifts: config.gifts, editable })}</aside>
   </div>
   ${editable ? editorDialog(csrf) : ''}
   <script type="application/json" id="ag-icons">${JSON.stringify({ promos: ico('promos'), vouchers: ico('vouchers'), gifts: ico('gifts') }).replace(/</g, '\\u003c')}</script>`;
@@ -368,7 +398,7 @@ const STYLE = `
 .ag-bot h3,.ag-qontak h3{margin:0; display:flex; align-items:center; gap:.5rem; font-size:1rem; font-weight:600; letter-spacing:-.01em}
 .ag-bot h3 .ico,.ag-qontak h3 .ico{width:20px; height:20px; color:var(--brand)}
 .ag-bot__head p{margin:.25rem 0 0; font-size:.76rem; color:var(--muted)}
-.ag-bot__scroll{overflow:auto; border:1px solid var(--line); border-radius:var(--radius-s); max-height:min(60vh,640px)}
+.ag-bot__scroll{overflow:auto; border:1px solid var(--line); border-radius:var(--radius-s); max-height:min(78vh,920px)}
 .ag-p{width:100%; border-collapse:collapse; font-size:.82rem}
 .ag-p th{position:sticky; top:0; z-index:1; text-align:left; font-size:.66rem; letter-spacing:.09em; text-transform:uppercase; font-weight:600; color:var(--muted);
   padding:.6rem .75rem; background:var(--panel); border-bottom:1px solid var(--line)}
@@ -380,6 +410,23 @@ const STYLE = `
 .ag-p__n{display:block; font-weight:500; line-height:1.35}
 .ag-p__k{display:block; font-size:.7rem; color:var(--dim); margin-top:.1rem}
 .ag-p__price{font-weight:600}
+.ag-gifts{display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.4rem}
+.ag-gift{display:inline-flex; align-items:center; gap:.35rem; max-width:100%; font:inherit; font-size:.72rem; font-weight:500; line-height:1.3;
+  padding:.28rem .55rem; min-height:28px; border-radius:999px; border:1px solid color-mix(in srgb,var(--act) 45%,transparent);
+  color:var(--act); background:color-mix(in srgb,var(--act) 11%,transparent); text-align:left; transition:background var(--t-fast), border-color var(--t-fast)}
+button.ag-gift{cursor:pointer}
+button.ag-gift:hover{background:color-mix(in srgb,var(--act) 20%,transparent)}
+.ag-gift:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.ag-gift .ico{width:13px; height:13px; flex:none}
+.ag-gift > .ico:last-child{opacity:.6}
+.ag-gift__ico{display:inline-grid}
+.ag-gift__t{overflow:hidden; text-overflow:ellipsis}
+.ag-gift__st{font-size:.64rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; opacity:.85}
+.ag-gift--scheduled{color:var(--info); border-color:color-mix(in srgb,var(--info) 45%,transparent); background:color-mix(in srgb,var(--info) 10%,transparent)}
+.ag-gift--expired{color:var(--muted); border-color:var(--line); background:var(--glass); text-decoration:line-through; text-decoration-thickness:1px}
+.ag-gift--add{color:var(--muted); border:1px dashed var(--line); background:transparent}
+button.ag-gift--add:hover{color:var(--fg); border-color:var(--brand); background:var(--glass)}
+@media (max-width:640px){ .ag-gift{min-height:36px} }
 .ag-p__was{display:block; font-size:.72rem; color:var(--dim)}
 
 .ag-json{margin-top:.85rem; border:1px solid var(--line); border-radius:var(--radius-s); background:var(--panel-2)}
@@ -429,13 +476,8 @@ const STYLE = `
 .ag-ed__gift{margin:0; padding:0; border:0; display:flex; flex-direction:column; gap:.8rem}
 .ag-ed [hidden]{display:none !important}
 .ag-ed__gift legend{font-size:.74rem; color:var(--muted); margin-bottom:.45rem; padding:0}
-.ag-chks{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:.35rem}
-.ag-chk{display:flex; gap:.5rem; align-items:flex-start; padding:.5rem .6rem; border:1px solid var(--line); border-radius:8px; background:var(--panel-2);
-  font-size:.76rem; line-height:1.35; cursor:pointer; transition:border-color var(--t-fast)}
-.ag-chk:hover{border-color:var(--brand)}
-.ag-chk:has(input:checked){border-color:var(--brand); background:color-mix(in srgb,var(--brand) 10%,var(--panel-2))}
-.ag-chk:has(input:focus-visible){outline:2px solid var(--brand); outline-offset:1px}
-.ag-chk input{margin:.1rem 0 0; accent-color:var(--brand); flex:none}
+.ag-ed__variant{margin:0; padding:.6rem .75rem; border-radius:8px; font-size:.84rem; font-weight:500; background:var(--panel-2); border:1px solid var(--line)}
+.ag-ed__del{margin-right:auto}
 .ag-ed__foot{display:flex; justify-content:flex-end; gap:.6rem; padding:.9rem 1.25rem; border-top:1px solid var(--line); background:var(--panel-2)}
 .ag-ed__foot .ag-btn{min-height:44px}
 @media (max-width:520px){ .ag-ed__dates{grid-template-columns:1fr} .ag-ed__foot .ag-go,.ag-ed__foot .ag-btn{flex:1} }
@@ -468,7 +510,7 @@ const SCRIPT = `
     var count = function () { $('ag-f-count').textContent = detail.value.length; };
     detail.addEventListener('input', count);
 
-    var open = function (kind, item) {
+    var open = function (kind, item, forKey, forName) {
       form.reset();
       $('ag-ed-kind').value = kind;
       $('ag-ed-orig').value = item ? item.id : '';
@@ -482,8 +524,19 @@ const SCRIPT = `
       $('ag-f-start').value = item && item.starts_at ? item.starts_at : '';
       $('ag-f-end').value = item && item.ends_at ? item.ends_at : '';
       $('ag-f-url').value = item && item.url ? item.url : '';
-      var applies = (item && item.applies_to) || [];
-      Array.prototype.forEach.call(form.querySelectorAll('[name=applies_to]'), function (box) { box.checked = applies.indexOf(box.value) !== -1; });
+      // A gift is attached to the variant row it was opened from; an older gift that covers
+      // several variants keeps all of them.
+      var applies = item ? (item.applies_to || []) : (forKey ? [forKey] : []);
+      $('ag-f-applies').innerHTML = applies.map(function (k) { return '<input type="hidden" name="applies_to" value="' + k.replace(/[^a-z0-9_]/g, '') + '">'; }).join('');
+      $('ag-f-variant').textContent = !applies.length ? 'Semua produk' : applies.length > 1 ? (forName + ' dan ' + (applies.length - 1) + ' varian lain') : (forName || applies[0]);
+      form.dataset.variant = forName || '';
+      if (kind === 'gifts') $('ag-ed-title').textContent = (item ? 'Ubah hadiah' : 'Tambah hadiah') + (forName ? ' · ' + forName : '');
+      var del = $('ag-ed-delbtn');
+      del.hidden = !(item && kind === 'gifts');
+      if (item && kind === 'gifts') {
+        $('ag-ed-del-id').value = item.id;
+        $('ag-ed-del').dataset.confirmText = 'Hapus hadiah "' + item.name + '"' + (forName ? ' dari ' + forName : '') + '? Bot langsung berhenti menyebutnya di jawaban berikutnya.';
+      }
       var voucher = kind === 'vouchers';
       $('ag-f-code').required = voucher;
       $('ag-f-code-opt').textContent = voucher ? '(wajib)' : '(opsional)';
@@ -496,12 +549,12 @@ const SCRIPT = `
 
     document.addEventListener('click', function (e) {
       var add = e.target.closest('[data-ag-new]');
-      if (add) { open(add.getAttribute('data-ag-new'), null); return; }
+      if (add) { open(add.getAttribute('data-ag-new'), null, add.getAttribute('data-for'), add.getAttribute('data-variant')); return; }
       var edit = e.target.closest('[data-ag-edit]');
       if (edit) {
         var item = null;
         try { item = JSON.parse(edit.getAttribute('data-item')); } catch (err) {}
-        if (item) open(edit.getAttribute('data-kind'), item);
+        if (item) open(edit.getAttribute('data-kind'), item, edit.getAttribute('data-for'), edit.getAttribute('data-variant'));
         return;
       }
       if (e.target.closest('[data-ag-close]')) dlg.close();
@@ -516,6 +569,7 @@ const SCRIPT = `
       var end = $('ag-f-end').value;
       var endText = end ? new Date(end + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '';
       form.dataset.confirm = (isNew ? 'Tambahkan ' : 'Simpan perubahan ') + LABEL[kind] + ' "' + name + '"'
+        + (kind === 'gifts' && form.dataset.variant ? ' untuk ' + form.dataset.variant : '')
         + (end ? ', berlaku sampai ' + endText : ', tanpa batas waktu') + '? Bot WhatsApp langsung memakai data ini di jawaban berikutnya.';
     });
   }
