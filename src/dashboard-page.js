@@ -4830,6 +4830,7 @@ export function renderManual({
   const wrongRow = (index) => `
     <div class="ln ln--wrong" data-wrong>
       <span class="ln__prod">
+        <img class="ln__pic" alt="" width="38" height="38" hidden>
         <select name="wsku" aria-label="Barang yang sudah dikirim baris ${index + 1}">
           <option value="">Pilih produk&hellip;</option>
           ${productOptions}
@@ -5380,6 +5381,7 @@ export function renderManual({
       row.querySelector('[name="wunitPrice"]').value = '';
       row.querySelector('[name="wqty"]').value = '1';
       row.querySelector('[data-wrong-total]').textContent = '\\u2014';
+      showPicture(row);
       wlines.appendChild(row);
       wireWrong(row);
       row.querySelector('select').focus();
@@ -5395,12 +5397,14 @@ export function renderManual({
       var option = e.target.options[e.target.selectedIndex];
       var price = option ? Number(option.dataset.price) : 0;
       row.querySelector('[name="wunitPrice"]').value = e.target.value ? String(price) : '';
+      showPicture(row);
       total();
     });
     row.querySelector('[data-remove-wrong]').addEventListener('click', function () {
       if (wlines.querySelectorAll('[data-wrong]').length === 1) {
         row.querySelector('select').value = '';
         row.querySelector('[name="wunitPrice"]').value = '';
+        showPicture(row);
       } else {
         row.remove();
       }
