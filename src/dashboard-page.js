@@ -857,6 +857,13 @@ ${DIRECT_PRINT_CSS}
 .pq__dot{width:.55rem; height:.55rem; border-radius:50%; background:var(--dim); flex:none} .pq__dot.is-on{background:var(--good); box-shadow:0 0 8px var(--good)} .pq__dot.is-busy{background:var(--warn)} .pq__dot.is-off{background:var(--bad)}
 .pq__list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
 .pq__row{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; padding:.9rem 1rem; border:1px solid var(--line); border-radius:14px; background:var(--panel); transition:opacity .2s, border-color .2s}
+.pq__find{position:relative; display:flex; align-items:center} .pq__find > .ico{position:absolute; left:.9rem; width:18px; height:18px; color:var(--muted); pointer-events:none}
+.pq__find input{width:100%; min-height:48px; padding:0 3rem 0 2.6rem; border:1px solid var(--line); border-radius:14px; background:var(--panel); color:var(--fg); font:inherit; font-size:16px; transition:border-color .15s, box-shadow .15s}
+.pq__find input::placeholder{color:var(--muted)} .pq__find input:focus{outline:none; border-color:var(--brand); box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 25%, transparent)}
+.pq__find input::-webkit-search-cancel-button{display:none}
+.pq__find-x{position:absolute; right:.25rem; display:grid; place-items:center; width:44px; height:44px; border:0; border-radius:12px; background:none; color:var(--muted); cursor:pointer} .pq__find-x[hidden]{display:none} .pq__find-x .ico{width:16px; height:16px}
+.pq__none{margin:0; padding:.2rem .1rem; font-size:.88rem; color:var(--muted)} .pq__none[hidden]{display:none}
+.pq__row[hidden], .pq__day[hidden]{display:none}
 .pq__tabs{position:sticky; top:0; z-index:10; display:grid; grid-template-columns:1fr 1fr; padding:4px; border:1px solid var(--line); border-radius:14px; background:var(--panel); isolation:isolate}
 .pq__tab{position:relative; z-index:1; min-height:44px; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; padding:0 .6rem; border:0; border-radius:10px; background:transparent; color:var(--muted); font:inherit; font-size:.95rem; font-weight:600; cursor:pointer; transition:color .2s; -webkit-tap-highlight-color:transparent}
 .pq__tab[aria-selected="true"]{color:var(--fg)}
@@ -884,8 +891,12 @@ ${DIRECT_PRINT_CSS}
 .pq__acts{display:grid; grid-template-columns:1fr 1fr; gap:.6rem}
 .pq__acts:has(.pq__retry[hidden]){grid-template-columns:1fr}
 .pq__acts .pq__close[hidden]{display:none}
+.pq__acts:has(.pq__shut:not([hidden])){grid-template-columns:56px 1fr}
+.pq__shut{width:56px; min-height:56px; display:grid; place-items:center; padding:0; border:1px solid var(--line); border-radius:16px; background:transparent; color:var(--fg); cursor:pointer; transition:background .15s, border-color .15s}
+.pq__shut:hover{background:color-mix(in srgb, var(--fg) 6%, transparent)} .pq__shut:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.pq__shut[hidden]{display:none} .pq__shut .ico{width:20px; height:20px}
 .pq__head{display:flex; align-items:center; justify-content:space-between; gap:.75rem}
-.pq__x{width:44px; height:44px; margin:-.5rem -.6rem -.5rem 0; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; color:var(--muted); cursor:pointer; transition:background .2s, color .2s}
+.pq__x{width:44px; height:44px; margin:-.4rem -.5rem -.4rem 0; flex:none; display:grid; place-items:center; border:0; border-radius:50%; background:color-mix(in srgb, var(--fg) 8%, transparent); color:var(--fg); cursor:pointer; transition:background .2s, color .2s}
 .pq__x:hover{background:color-mix(in srgb, var(--fg) 6%, transparent); color:var(--fg)}
 .pq__x:disabled{opacity:.35; cursor:default} .pq__x .ico{width:20px; height:20px}
 .pq__next{min-height:56px; display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.5rem 1.1rem; text-align:left; cursor:pointer}
@@ -6366,6 +6377,12 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       <span class="pq__status"><i class="pq__dot ${online ? 'is-on' : ''}" id="pq-dot" aria-hidden="true"></i><span id="pq-state">${escape(online ? `${printerName} siap` : 'Memeriksa printer…')}</span></span>
       <button class="pq__link" type="button" id="pq-pair" hidden>${svg('printer')}<span>Pilih printer</span></button>
     </div>
+    <div class="pq__find" role="search">
+      ${svg('search')}
+      <input type="search" id="pq-q" placeholder="Cari order ID" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Cari order ID">
+      <button class="pq__find-x" type="button" id="pq-q-x" aria-label="Hapus pencarian" hidden>${svg('close')}</button>
+    </div>
+    <p class="pq__none" id="pq-none" role="status" hidden></p>
     <div class="pq__tabs" role="tablist" aria-label="Status cetak">
       <button class="pq__tab" type="button" role="tab" id="pq-t-todo" aria-controls="pq-p-todo" aria-selected="true" data-tab="todo">Belum dicetak<span class="pq__badge mono" id="pq-n-todo">${rows.length}</span></button>
       <button class="pq__tab" type="button" role="tab" id="pq-t-done" aria-controls="pq-p-done" aria-selected="false" tabindex="-1" data-tab="done">Sudah dicetak<span class="pq__badge mono" id="pq-n-done">${done.length}</span></button>
@@ -6397,6 +6414,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       <div class="pq__acts">
         <button class="pq__close" type="button" id="pq-close">Tutup</button>
         <button class="cta pq__retry" type="button" id="pq-retry" hidden>Coba lagi</button>
+        <button class="pq__shut" type="button" id="pq-shut" aria-label="Tutup" title="Tutup" hidden>${svg('close')}</button>
         <button class="cta pq__next" type="button" id="pq-next" hidden>
           <span class="pq__next-t"><b>Pesanan berikutnya</b><small id="pq-next-who"></small></span>${svg('arrow')}
         </button>
@@ -6413,7 +6431,7 @@ const PACKER_SCRIPT = `
   var goodsEl = document.getElementById('pq-goods'), orderEl = document.getElementById('pq-order');
   var waitEl = document.getElementById('pq-wait'), errEl = document.getElementById('pq-err'), closeBtn = document.getElementById('pq-close');
   var retryBtn = document.getElementById('pq-retry'), stepsEl = sheet.querySelector('.pq__steps');
-  var nextBtn = document.getElementById('pq-next'), nextWho = document.getElementById('pq-next-who'), xBtn = document.getElementById('pq-x');
+  var nextBtn = document.getElementById('pq-next'), nextWho = document.getElementById('pq-next-who'), xBtn = document.getElementById('pq-x'), shutBtn = document.getElementById('pq-shut');
   var dot = document.getElementById('pq-dot'), stateEl = document.getElementById('pq-state'), pairBtn = document.getElementById('pq-pair');
   var todoList = document.getElementById('pq-todo'), doneList = document.getElementById('pq-done');
   var tabs = root.querySelector('.pq__tabs'), tickTpl = document.getElementById('pq-tick');
@@ -6439,6 +6457,34 @@ const PACKER_SCRIPT = `
   });
   var startTab = 'todo'; try { if (sessionStorage.getItem('pq.tab') === 'done') startTab = 'done'; } catch (e) {}
   selectTab(startTab);
+  /*
+   * Finding one parcel by its order ID, in both tabs. Typed as it is on the box or the
+   * waybill, with or without the #, any part of it. When the open tab has no match and
+   * the other one has, the other one opens: "already printed" is usually the answer.
+   */
+  var qEl = document.getElementById('pq-q'), qX = document.getElementById('pq-q-x'), noneEl = document.getElementById('pq-none');
+  function norm(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function find() {
+    var q = norm(qEl.value);
+    qX.hidden = !qEl.value;
+    var hits = { todo: 0, done: 0 };
+    [['todo', todoList], ['done', doneList]].forEach(function (pair) {
+      pair[1].querySelectorAll('.pq__row').forEach(function (row) {
+        var id = row.querySelector('.pq__id');
+        var on = !q || norm(id ? id.textContent : row.getAttribute('data-key')).indexOf(q) !== -1;
+        row.hidden = !on; if (on) hits[pair[0]] += 1;
+      });
+    });
+    doneList.querySelectorAll('.pq__day').forEach(function (d) { d.hidden = !!q && !d.querySelector('.pq__row:not([hidden])'); });
+    var open = tabs.getAttribute('data-on') || 'todo', other = open === 'todo' ? 'done' : 'todo';
+    if (q && !hits[open] && hits[other]) { selectTab(other); open = other; }
+    noneEl.hidden = !q || hits.todo + hits.done > 0;
+    if (q && !hits.todo && !hits.done) noneEl.textContent = 'Tidak ada pesanan dengan order ID itu di daftarmu.';
+  }
+  qEl.addEventListener('input', find);
+  qEl.addEventListener('keydown', function (e) { if (e.key === 'Escape') { qEl.value = ''; find(); } });
+  qX.addEventListener('click', function () { qEl.value = ''; find(); qEl.focus(); });
+
   function recount() {
     var nTodo = todoList.querySelectorAll('.pq__row').length, nDone = doneList.querySelectorAll('.pq__row').length;
     document.getElementById('pq-n-todo').textContent = nTodo;
@@ -6617,7 +6663,7 @@ const PACKER_SCRIPT = `
     var nxt = mode === 'done' ? nextRow() : null;
     nextBtn.hidden = !nxt;
     if (nxt) nextWho.textContent = nxt.querySelector('.pq__id').textContent + ' · ' + nxt.querySelector('.pq__buyer').textContent;
-    closeBtn.hidden = !!nxt;
+    closeBtn.hidden = !!nxt; shutBtn.hidden = !nxt;
     closeBtn.disabled = mode === 'busy'; xBtn.disabled = mode === 'busy';
     retryBtn.hidden = !(mode === 'fail' && retry);
     if (nxt && sheet.open) nextBtn.focus();
@@ -6740,6 +6786,7 @@ const PACKER_SCRIPT = `
   retryBtn.addEventListener('click', function () { var r = retry; if (r && !busy) r(); });
   closeBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
   xBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
+  shutBtn.addEventListener('click', function () { if (!busy) sheet.close(); });
   // Straight on to the next parcel: printed like any press, its contents shown here.
   nextBtn.addEventListener('click', function () { var r = nextRow(); if (r && !busy) press(r); else footer('done'); });
   sheet.addEventListener('cancel', function (e) { if (busy) e.preventDefault(); });

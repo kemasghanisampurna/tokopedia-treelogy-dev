@@ -227,3 +227,9 @@ test("the packer's pile is newest hand-out first, and a browser with no Bluetoot
   assert.doesNotMatch(html, /id="pq-pdf"/, 'no PDF that would count as printed');
   assert.match(html, /browser ini tidak bisa menyambung ke printer Bluetooth/);
 });
+
+test('the packer can find a parcel by its order ID, in either tab', () => {
+  const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments, packers: [packer] });
+  assert.match(html, /<input type="search" id="pq-q" placeholder="Cari order ID"/);
+  assert.match(html, /function find\(\)/);
+});
