@@ -71,7 +71,7 @@ test('whoever may write gets the hand-out tools, the chip on the row and a pile 
 
 test('an assigned row can be taken back by itself, without ticking anything', async () => {
   const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'Wiwiek'), order('#2', 'Budi')], assignments, packers: [packer] });
-  assert.match(html, /class="lb-free" type="submit" formaction="\/api\/dashboard" formtarget="_self" formnovalidate name="unassign" value="shopify:#1"/);
+  assert.match(html, /class="lb-free" type="submit" formaction="\/api\/dashboard" formtarget="_self" formnovalidate name="unassign" value="shopify:#1" data-ask="#1 dari Budi"/);
   assert.equal((html.match(/class="lb-free"/g) ?? []).length, 1, 'only the assigned row has one');
   const viewer = renderLabels({ ...base, user: { ...agas, role: 'viewer' }, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer] });
   assert.doesNotMatch(viewer, /class="lb-free"/, 'a viewer takes nothing back');

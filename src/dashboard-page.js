@@ -6151,7 +6151,7 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
         assigned ? `<span class="pick__s lb-to" title="Ditugaskan ke ${escape(assigned.name || assigned.to)}">${svg('user')}${escape(assigned.name || assigned.to)}${
           // Taken back from this one row, without ticking anything: handing the wrong
           // parcel out is fixed where it is seen.
-          viewer && viewer.role !== 'packer' && can(viewer, 'assign') ? `<button class="lb-free" type="submit" formaction="/api/dashboard" formtarget="_self" formnovalidate name="unassign" value="${escape(o.channel)}:${escape(o.id)}" title="Lepas dari ${escape(assigned.name || assigned.to)}" aria-label="Lepas ${escape(o.id)} dari ${escape(assigned.name || assigned.to)}">${svg('close')}</button>` : ''}</span>` : ''}</td>
+          viewer && viewer.role !== 'packer' && can(viewer, 'assign') ? `<button class="lb-free" type="submit" formaction="/api/dashboard" formtarget="_self" formnovalidate name="unassign" value="${escape(o.channel)}:${escape(o.id)}" data-ask="${escape(o.id)} dari ${escape(assigned.name || assigned.to)}" title="Lepas dari ${escape(assigned.name || assigned.to)}" aria-label="Lepas ${escape(o.id)} dari ${escape(assigned.name || assigned.to)}">${svg('close')}</button>` : ''}</span>` : ''}</td>
       <td class="nowrap"><span class="${readiness.changed ? 'stop' : (READY_TONE[readiness.state] ?? 'dim')}">${escape(readiness.note)}</span>${
         // What moved is a hover away, so the row stays one short line.
         readiness.what?.length ? ` <span class="lb-tip" tabindex="0" role="img" aria-label="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}" data-tip="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}">${svg('info')}</span>` : ''}${
@@ -7140,17 +7140,33 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
    * dropdown, or leaving a whole page ticked, is the mistake this catches. The count is
    * what will actually be sent - what is ticked, less what the shelf cannot fill.
    */
+  // Taking back asks the same way: the row's own X names its order, the bulk Lepas counts.
   var assignAsked = false;
-  form.addEventListener('submit', function (e) {
-    var b = e.submitter;
-    if (!b || b.getAttribute('value') !== 'label_assign' || assignAsked || !window.treelogyConfirm) return;
+  function askFor(b) {
+    var action = b.getAttribute('value');
+    if (b.name === 'unassign') return 'Lepas ' + (b.getAttribute('data-ask') || 'pesanan ini') + '?';
+    if (action === 'label_unassign') {
+      var on = picks.filter(function (p) { return p.checked && !p.disabled; });
+      if (!on.length) return '';
+      var names = [];
+      on.forEach(function (p) { var w = p.getAttribute('data-held'); if (w && names.indexOf(w) === -1) names.push(w); });
+      return 'Lepas ' + on.length + ' pesanan dari ' + (names.length === 1 ? names[0] : 'packernya') + '?';
+    }
+    if (action !== 'label_assign') return '';
     var n = picks.filter(function (p) { return p.checked && !p.disabled && !p.hasAttribute('data-short'); }).length;
     // Nothing to hand out: the server says so, no question needed.
-    if (!n) return;
-    e.preventDefault(); e.stopImmediatePropagation();
+    if (!n) return '';
     var sel = document.getElementById('lb-packer');
     var who = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : 'packer';
-    window.treelogyConfirm('Tugaskan ' + n + ' pesanan ke ' + who + '?').then(function (yes) {
+    return 'Tugaskan ' + n + ' pesanan ke ' + who + '?';
+  }
+  form.addEventListener('submit', function (e) {
+    var b = e.submitter;
+    if (!b || assignAsked || !window.treelogyConfirm) return;
+    var question = askFor(b);
+    if (!question) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    window.treelogyConfirm(question).then(function (yes) {
       if (!yes) return;
       assignAsked = true;
       if (form.requestSubmit) form.requestSubmit(b); else b.click();
