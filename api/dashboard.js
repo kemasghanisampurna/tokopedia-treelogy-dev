@@ -30,6 +30,7 @@ import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
 import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo, splitPrintable, heldText } from '../src/label-assign.js';
 import { reserveFor, shelfPulse } from '../src/warehouse-reserve.js';
+import { shelfShortages, shortRefusal } from '../src/shelf-gate.js';
 import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
 import { refreshOrders, refreshOneOrder, RESHIPS, diffOrder } from '../src/orders-refresh.js';
@@ -986,6 +987,9 @@ export async function handleWrite(form, ip, user, csrf) {
     const email = String(form.get('packer') ?? '').trim().toLowerCase();
     const packer = (await listUsers()).find((u) => u.email === email && u.role === 'packer' && u.status === 'active');
     if (!packer) throw new Error('packer tidak ditemukan atau tidak aktif');
+    // Nothing on the shelf to pack: not handed out (src/shelf-gate.js, as printing).
+    const short = await shelfShortages(keys);
+    if (short.length) throw new Error(`tidak bisa ditugaskan - ${shortRefusal(short)}`);
     await assignLabels(keys, packer, user);
     console.log(`dashboard: label_assign ${keys.length} pesanan -> ${packer.email} oleh ${user.email}`);
     return {
@@ -2612,10 +2616,11 @@ export default async function handler(req, res) {
           heldOrders().catch(() => ({})),
         ]);
         const handed = await loadAssignments().catch(() => ({ orders: {} }));
+        const shelf = await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null);
         const found = withHolds({ orders: matched }, holds).orders;
         const people = Object.fromEntries(roster.map((u) => [u.email, u.name]));
         console.log(`dashboard/labels lookup: ${found.length} match(es)`);
-        json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people, assignments: handed, user }), count: found.length });
+        json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people, assignments: handed, user, shelf }), count: found.length });
       } catch (error) {
         console.error('dashboard/labels lookup failed:', error.message);
         json(502, { error: 'Pencarian ke database gagal, coba lagi sebentar.' });
@@ -2705,7 +2710,7 @@ export default async function handler(req, res) {
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
         bench, assignments, packers, packerFilter, isPacker, packerDone, images: isPacker ? await imagesByKey() : {},
-        shelf: isPacker ? await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null) : null,
+        shelf: await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null),
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

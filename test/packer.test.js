@@ -185,3 +185,22 @@ test('after a print the sheet offers the next parcel, which prints at once; with
   assert.match(page, /nextBtn\.addEventListener\('click', function \(\) \{ var r = nextRow\(\); if \(r && !busy\) press\(r\);/);
   assert.match(page, /closeBtn\.hidden = !!nxt;/, 'Tutup gives way to the next parcel, and comes back when there is none');
 });
+
+test('goods missing from the shelf stop the parcel for everyone: no print, no hand-out', async () => {
+  const { recipeOf } = await import('../src/warehouse.js');
+  const code = Object.keys(recipeOf('OMC-90-001'))[0];
+  const shelf = { items: { [code]: { name: 'Organic Moringa Capsules 90', qty: 0 } }, orders: {}, recipes: {} };
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W'), order('#2', 'S')], assignments: null, packers: [packer], shelf });
+  assert.match(html, /value="shopify:#2"[^>]*data-short="1"/);
+  assert.doesNotMatch(html, /value="shopify:#2" checked/);
+  assert.match(html, /lb-short">.*Stok di rak kurang: Organic Moringa Capsules 90 \(perlu 2, ada 0\)/s);
+  assert.match(html, /Cetak <span id="n">0<\/span> label/);
+  const fs = await import('node:fs');
+  const api = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
+  assert.match(api, /const short = await shelfShortages\(/, 'checked for whoever prints');
+  assert.doesNotMatch(api, /if \(user\.role === 'packer'\) \{\s*\/\/ Goods/, 'not only for packers');
+  const dash = fs.readFileSync(new URL('../api/dashboard.js', import.meta.url), 'utf8');
+  assert.match(dash, /const short = await shelfShortages\(keys\);\s*if \(short\.length\) throw new Error\(`tidak bisa ditugaskan/);
+  const { shortRefusal } = await import('../src/shelf-gate.js');
+  assert.equal(shortRefusal([{ id: '#2', short: [{ name: 'Pouch', need: 1, have: 0 }] }, { id: '#3', short: [] }]), '#2: Stok di rak kurang: Pouch (perlu 1, ada 0) (dan 1 pesanan lain)');
+});

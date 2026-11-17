@@ -10,9 +10,7 @@ import {
 import { recordActivity } from '../src/audit.js';
 import { can } from '../src/users.js';
 import { loadAssignments, splitPrintable, heldText } from '../src/label-assign.js';
-import { loadWarehouse } from '../src/warehouse-run.js';
-import { shortagesFor, shortageText } from '../src/warehouse-reserve.js';
-import { ordersByIds } from '../src/db/orders.js';
+import { shelfShortages, shortRefusal } from '../src/shelf-gate.js';
 import { directPrinterFor } from '../src/direct-print.js';
 import { rasterizePdf } from '../src/label-raster.js';
 import { enqueueJob } from '../src/print-queue.js';
@@ -123,18 +121,10 @@ export default async function handler(req, res) {
     fail(403, user.role === 'packer' ? 'Bukan tugasmu' : 'Sudah ditugaskan ke packer', heldText(held, user));
     return;
   }
-  if (user.role === 'packer') {
-    // Goods that are not on the shelf cannot be packed; the label waits for them.
-    const [shelf, rows] = await Promise.all([
-      loadWarehouse().catch(() => null),
-      ordersByIds([...selected].map(([id, channel]) => ({ channel, id }))).catch(() => []),
-    ]);
-    const short = (Array.isArray(rows) ? rows : rows?.orders ?? []).map((o) => ({ o, short: shortagesFor(shelf, o) })).filter((x) => x.short.length);
-    if (short.length) {
-      fail(409, 'Stok di rak kurang', `${short[0].o.id}: ${shortageText(short[0].short)}`);
-      return;
-    }
-  }
+  // Goods that are not on the shelf cannot be packed: nobody prints their label.
+  const short = await shelfShortages([...selected].map(([id, channel]) => `${channel}:${id}`)).catch(() => null);
+  if (!short) { fail(503, 'Stok rak tidak terbaca', 'Coba lagi sebentar.'); return; }
+  if (short.length) { fail(409, 'Stok di rak kurang', shortRefusal(short)); return; }
   if (selected.size === 0) {
     fail(400, 'Tidak ada yang dipilih', 'Centang minimal satu pesanan sebelum mencetak.');
     return;

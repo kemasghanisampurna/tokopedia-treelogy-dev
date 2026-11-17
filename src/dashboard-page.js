@@ -939,6 +939,7 @@ ${DIRECT_PRINT_CSS}
 .pq__err{margin:0; font-size:.9rem}
 .pq__close{min-height:48px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); font:inherit; font-weight:600; cursor:pointer}
 .pq__close:disabled{opacity:.45; cursor:default}
+.lb-short{display:inline-flex; align-items:flex-start; gap:.3rem; white-space:normal; font-size:.85rem} .lb-short .ico{width:15px; height:15px; margin-top:.15rem}
 .lb-to{display:inline-flex; align-items:center; gap:.25rem; color:var(--accent)} .lb-to .ico{width:.9rem; height:.9rem}
 .lb-assign{display:inline-flex; align-items:center; gap:.4rem} .lb-assign .dr__in{min-width:9rem}
 .lb-packers{gap:.4rem}
@@ -6114,7 +6115,7 @@ const READY_TONE = { needsPrint: 'ok', reprint: 'flag' };
  * looks, ticks and prints exactly like one that was already on the page. A row with no
  * checkbox (`gone`) is one that cannot be printed, and `extra` says why underneath.
  */
-function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '', viewer = null } = {}) {
+function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '', viewer = null, short = [] } = {}) {
   // The stage pill is redundant here - every row on this page is printable by
   // definition, and the readiness note already says what matters.
   const times = Number(entry?.times ?? 0);
@@ -6122,10 +6123,12 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
   // but never ticked for a print and never sent with one.
   const held = Boolean(viewer && assigned && !mayPrint(viewer, assigned));
   const heldBy = held ? (assigned.name || assigned.to) : '';
-  if (held) on = false;
+  // Nothing on the shelf to pack (src/shelf-gate.js): not printed, not handed out.
+  const isShort = short.length > 0;
+  if (held || isShort) on = false;
   const why = [extra || (readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : ''), held ? `dicetak oleh ${heldBy} - lepas tugasnya dulu untuk mencetak sendiri` : ''].filter(Boolean).join(' · ');
   return `<tr data-id="${escape(String(o.id).toLowerCase())}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
-      <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}
+      <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}${isShort ? ' data-short="1"' : ''}
         ${batchKey ? `data-batch="${escape(batchKey)}"` : ''}${out ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">`}</td>
       <td>${channelTag(o)}</td>
       <td>
@@ -6138,7 +6141,8 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
         // What moved is a hover away, so the row stays one short line.
         readiness.what?.length ? ` <span class="lb-tip" tabindex="0" role="img" aria-label="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}" data-tip="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}">${svg('info')}</span>` : ''}${
         times > 1 ? ` <span class="dim">&middot; ${times}&times;</span>` : ''}${
-        why ? `<br><span class="dim">${escape(why)}</span>` : ''}</td>
+        why ? `<br><span class="dim">${escape(why)}</span>` : ''}${
+        isShort ? `<br><span class="stop lb-short">${svg('warn')}${escape(shortageText(short))}</span>` : ''}</td>
     </tr>`;
 }
 
@@ -6240,7 +6244,7 @@ function orderPreview(order) {
   </span>`;
 }
 
-export function renderLabelLookup({ orders, printed = {}, arranged = {}, people = {}, assignments = null, user = null }) {
+export function renderLabelLookup({ orders, printed = {}, arranged = {}, people = {}, assignments = null, user = null, shelf = null }) {
   const personName = (email) => people[email] || String(email || '').split('@')[0] || 'tidak diketahui';
   return orders.map((o) => {
     const readiness = labelReadiness(o, printed, arranged);
@@ -6251,7 +6255,7 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
       : '';
     const why = [gone && readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : '', when]
       .filter(Boolean).join(' · ');
-    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user });
+    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user, short: gone ? [] : shortagesFor(shelf, o) });
   }).join('');
 }
 
@@ -6807,9 +6811,10 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     // accepts.
     const gone = Boolean(readiness.unavailable);
     const held = Boolean(assigned && !mayPrint(user, assigned));
-    const on = !gone && !out && !held && ticked < MAX_PRESELECT;
+    const short = showReprints ? [] : shortagesFor(shelf, o);
+    const on = !gone && !out && !held && !short.length && ticked < MAX_PRESELECT;
     if (on) ticked += 1;
-    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone, viewer: user });
+    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone, viewer: user, short });
   };
 
   /*
@@ -7071,17 +7076,22 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
 
   // Only what a search has left on screen counts. A disabled row is not printed, so
   // counting it would promise a sheet that is not coming - nor is one handed to a packer.
-  function visible() { return picks.filter(function (p) { return !p.disabled && !p.hasAttribute('data-held'); }); }
+  function visible() { return picks.filter(function (p) { return !p.disabled && !p.hasAttribute('data-held') && !p.hasAttribute('data-short'); }); }
 
   /*
    * A parcel handed to a packer can be ticked - to hand it to someone else, or take it
    * back - but it never rides along with a print or a "sudah dicetak". Those two leave
    * it out of what they send; Tugaskan and Lepas send it as ticked.
    */
+  // A parcel the shelf cannot fill rides along with nothing but Lepas.
   form.addEventListener('submit', function (e) {
     var action = e.submitter && e.submitter.getAttribute('value');
-    if (action === 'label_assign' || action === 'label_unassign') return;
-    var held = picks.filter(function (p) { return p.checked && !p.disabled && p.hasAttribute('data-held'); });
+    if (action === 'label_unassign') return;
+    var held = picks.filter(function (p) {
+      if (!p.checked || p.disabled) return false;
+      if (p.hasAttribute('data-short')) return true;
+      return action !== 'label_assign' && p.hasAttribute('data-held');
+    });
     held.forEach(function (p) { p.disabled = true; });
     setTimeout(function () { held.forEach(function (p) { p.disabled = false; }); }, 0);
   }, true);
