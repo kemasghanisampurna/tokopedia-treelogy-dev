@@ -233,3 +233,8 @@ test('the packer can find a parcel by its order ID, in either tab', () => {
   assert.match(html, /<input type="search" id="pq-q" placeholder="Cari order ID"/);
   assert.match(html, /function find\(\)/);
 });
+
+test('handing out asks first, with how many and to whom', () => {
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W')], assignments: null, packers: [packer] });
+  assert.match(html, /'Tugaskan ' \+ n \+ ' pesanan ke ' \+ who \+ '\?'/);
+});

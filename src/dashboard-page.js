@@ -7135,6 +7135,29 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
    * back - but it never rides along with a print or a "sudah dicetak". Those two leave
    * it out of what they send; Tugaskan and Lepas send it as ticked.
    */
+  /*
+   * Handing out asks first, with the count and the name: picking the wrong packer in the
+   * dropdown, or leaving a whole page ticked, is the mistake this catches. The count is
+   * what will actually be sent - what is ticked, less what the shelf cannot fill.
+   */
+  var assignAsked = false;
+  form.addEventListener('submit', function (e) {
+    var b = e.submitter;
+    if (!b || b.getAttribute('value') !== 'label_assign' || assignAsked || !window.treelogyConfirm) return;
+    var n = picks.filter(function (p) { return p.checked && !p.disabled && !p.hasAttribute('data-short'); }).length;
+    // Nothing to hand out: the server says so, no question needed.
+    if (!n) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    var sel = document.getElementById('lb-packer');
+    var who = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : 'packer';
+    window.treelogyConfirm('Tugaskan ' + n + ' pesanan ke ' + who + '?').then(function (yes) {
+      if (!yes) return;
+      assignAsked = true;
+      if (form.requestSubmit) form.requestSubmit(b); else b.click();
+      assignAsked = false;
+    });
+  }, true);
+
   // A parcel the shelf cannot fill rides along with nothing but Lepas.
   form.addEventListener('submit', function (e) {
     var action = e.submitter && e.submitter.getAttribute('value');
