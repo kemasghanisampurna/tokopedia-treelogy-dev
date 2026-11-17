@@ -526,7 +526,8 @@ async function pickupStep({ user, csrf, eligible, waiting, plans, chosen }) {
 }
 
 export async function handleWrite(form, ip, user, csrf) {
-  const action = form.get('action');
+  // The row's own "lepas" button carries its order instead of an action.
+  const action = form.get('unassign') ? 'label_unassign' : form.get('action');
 
   // Permission first, before any field is read: a viewer's POST is refused whatever it says.
   if (USER_ACTIONS.has(action)) {
@@ -974,7 +975,9 @@ export async function handleWrite(form, ip, user, csrf) {
    */
   if (action === 'label_assign' || action === 'label_unassign') {
     const LABEL_SELECTION = /^(tokopedia|tiktok_shop|shopee|shopify|manual):([A-Za-z0-9_#-]{1,64})$/;
-    const keys = form.getAll('order').map(String).filter((value) => LABEL_SELECTION.test(value));
+    // One row's button takes back that row only, whatever else is ticked.
+    const one = form.get('unassign');
+    const keys = (one ? [one] : form.getAll('order')).map(String).filter((value) => LABEL_SELECTION.test(value));
     if (keys.length === 0) throw new Error('tidak ada pesanan yang dipilih');
     if (keys.length > 200) throw new Error('terlalu banyak sekaligus');
     if (action === 'label_unassign') {

@@ -941,6 +941,7 @@ ${DIRECT_PRINT_CSS}
 .pq__close:disabled{opacity:.45; cursor:default}
 .lb-short{display:inline-flex; align-items:flex-start; gap:.3rem; white-space:normal; font-size:.85rem} .lb-short .ico{width:15px; height:15px; margin-top:.15rem}
 .lb-to{display:inline-flex; align-items:center; gap:.25rem; color:var(--accent)} .lb-to .ico{width:.9rem; height:.9rem}
+.lb-free{display:inline-grid; place-items:center; width:1.75rem; height:1.75rem; margin:-.4rem -.35rem -.4rem .1rem; padding:0; border:0; border-radius:999px; background:none; color:var(--muted); cursor:pointer; transition:background-color .15s, color .15s} .lb-free:hover, .lb-free:focus-visible{background:color-mix(in srgb, var(--stop, #e5484d) 14%, transparent); color:var(--stop, #e5484d); outline:none} .lb-free .ico{width:.8rem; height:.8rem}
 .lb-assign{display:inline-flex; align-items:center; gap:.4rem} .lb-assign .dr__in{min-width:9rem}
 .lb-packers{gap:.4rem}
 .lb-tip{position:relative; display:inline-flex; vertical-align:-.2em; color:var(--muted); cursor:help; border-radius:50%}
@@ -6136,7 +6137,10 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
         <span class="pick__s">${escape(dateTime(o.createdAt, o.channel))} &middot; ${escape(o.carrier) || 'kurir belum ada'}</span>
       </td>
       <td class="nowrap">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}${
-        assigned ? `<span class="pick__s lb-to" title="Ditugaskan ke ${escape(assigned.name || assigned.to)}">${svg('user')}${escape(assigned.name || assigned.to)}</span>` : ''}</td>
+        assigned ? `<span class="pick__s lb-to" title="Ditugaskan ke ${escape(assigned.name || assigned.to)}">${svg('user')}${escape(assigned.name || assigned.to)}${
+          // Taken back from this one row, without ticking anything: handing the wrong
+          // parcel out is fixed where it is seen.
+          viewer && viewer.role !== 'packer' && can(viewer, 'assign') ? `<button class="lb-free" type="submit" formaction="/api/dashboard" formtarget="_self" formnovalidate name="unassign" value="${escape(o.channel)}:${escape(o.id)}" title="Lepas dari ${escape(assigned.name || assigned.to)}" aria-label="Lepas ${escape(o.id)} dari ${escape(assigned.name || assigned.to)}">${svg('close')}</button>` : ''}</span>` : ''}</td>
       <td class="nowrap"><span class="${readiness.changed ? 'stop' : (READY_TONE[readiness.state] ?? 'dim')}">${escape(readiness.note)}</span>${
         // What moved is a hover away, so the row stays one short line.
         readiness.what?.length ? ` <span class="lb-tip" tabindex="0" role="img" aria-label="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}" data-tip="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}">${svg('info')}</span>` : ''}${
@@ -7086,7 +7090,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   // A parcel the shelf cannot fill rides along with nothing but Lepas.
   form.addEventListener('submit', function (e) {
     var action = e.submitter && e.submitter.getAttribute('value');
-    if (action === 'label_unassign') return;
+    if (action === 'label_unassign' || (e.submitter && e.submitter.name === 'unassign')) return;
     var held = picks.filter(function (p) {
       if (!p.checked || p.disabled) return false;
       if (p.hasAttribute('data-short')) return true;

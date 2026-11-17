@@ -69,6 +69,18 @@ test('whoever may write gets the hand-out tools, the chip on the row and a pile 
   assert.doesNotMatch(noPackers, /class="filters lb-packers"/, "no packers, no piles");
 });
 
+test('an assigned row can be taken back by itself, without ticking anything', async () => {
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'Wiwiek'), order('#2', 'Budi')], assignments, packers: [packer] });
+  assert.match(html, /class="lb-free" type="submit" formaction="\/api\/dashboard" formtarget="_self" formnovalidate name="unassign" value="shopify:#1"/);
+  assert.equal((html.match(/class="lb-free"/g) ?? []).length, 1, 'only the assigned row has one');
+  const viewer = renderLabels({ ...base, user: { ...agas, role: 'viewer' }, orders: [order('#1', 'Wiwiek')], assignments, packers: [packer] });
+  assert.doesNotMatch(viewer, /class="lb-free"/, 'a viewer takes nothing back');
+  const fs = await import('node:fs');
+  const dash = fs.readFileSync(new URL('../api/dashboard.js', import.meta.url), 'utf8');
+  assert.match(dash, /const action = form\.get\('unassign'\) \? 'label_unassign'/, 'the button is an unassign');
+  assert.match(dash, /\(one \? \[one\] : form\.getAll\('order'\)\)/, 'of that row only');
+});
+
 test('a parcel the shelf cannot fill cannot be printed, and says what is missing', async () => {
   const { shortagesFor, shortageText } = await import('../src/warehouse-reserve.js');
   const { recipeOf } = await import('../src/warehouse.js');
