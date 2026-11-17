@@ -6403,9 +6403,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       </div>
     </div>
   </dialog>
-  <form method="post" action="/api/labels" target="_blank" id="pq-pdf" hidden>
-    <input type="hidden" name="csrf" value="${escape(csrf)}"><input type="hidden" name="size" value="${escape(size)}"><input type="hidden" name="order" value="">
-  </form>`;
+`;
 }
 
 const PACKER_SCRIPT = `
@@ -6723,15 +6721,12 @@ const PACKER_SCRIPT = `
         }
         throw new Error('belum ada kabar dari ' + benchName);
       }
-      if (navigator.bluetooth) {
-        show(row, 'printer');
-        throw new Error('printer belum tersambung. Ketuk Sambungkan printer di atas, lalu cetak lagi');
-      }
-      // No Bluetooth on this phone at all: the label opens as a PDF.
-      show(row, 'kamu');
-      var f = document.getElementById('pq-pdf'); f.elements.order.value = key; f.submit();
-      go(3); waitEl.textContent = 'Label dibuka di tab baru';
-      done(row);
+      show(row, 'printer');
+      if (navigator.bluetooth) throw new Error('printer belum tersambung. Ketuk Sambungkan printer di atas, lalu cetak lagi');
+      // No Web Bluetooth in this browser. A PDF opened in a tab says nothing about whether
+      // a label came out, so nothing is opened and nothing is recorded: the parcel stays
+      // in Belum dicetak until a printer here confirms it.
+      throw new Error('browser ini tidak bisa menyambung ke printer Bluetooth. Buka dashboard di Google Chrome (Android) atau Bluefy (iPhone), lalu cetak lagi');
     } catch (err) { pending = null; fail(row, err.message); }
   }
 
@@ -6793,7 +6788,10 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
       && (!readiness.unavailable || (showReprints && printedEntry(printed, order))))
     .filter(({ readiness }) => showReprints || !onlyChanged || readiness.changed)
     .map((row, index) => ({ row, index }))
-    .sort((a, b) => (showReprints ? 0 : Number(Boolean(b.row.readiness.changed)) - Number(Boolean(a.row.readiness.changed))) || a.index - b.index)
+    // A packer works down the pile as it was handed over, newest hand-out on top.
+    .sort((a, b) => (isPacker
+      ? (Number(b.row.assigned?.at) || 0) - (Number(a.row.assigned?.at) || 0)
+      : (showReprints ? 0 : Number(Boolean(b.row.readiness.changed)) - Number(Boolean(a.row.readiness.changed)))) || a.index - b.index)
     .map(({ row }) => row);
   /*
    * Printing is capped server-side; ticking past it would hand the operator a button that

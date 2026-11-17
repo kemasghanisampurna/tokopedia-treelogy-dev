@@ -216,3 +216,14 @@ test('goods missing from the shelf stop the parcel for everyone: no print, no ha
   const { shortRefusal } = await import('../src/shelf-gate.js');
   assert.equal(shortRefusal([{ id: '#2', short: [{ name: 'Pouch', need: 1, have: 0 }] }, { id: '#3', short: [] }]), '#2: Stok di rak kurang: Pouch (perlu 1, ada 0) (dan 1 pesanan lain)');
 });
+
+test("the packer's pile is newest hand-out first, and a browser with no Bluetooth prints nothing it cannot confirm", async () => {
+  let handed = applyAssign(null, ['shopify:#1'], packer, agas, 1000);
+  handed = applyAssign(handed, ['shopify:#2'], packer, agas, 3000);
+  handed = applyAssign(handed, ['shopify:#3'], packer, agas, 2000);
+  const html = renderLabels({ ...base, arranged: { '#1': 1, '#2': 1, '#3': 1 }, user: packer, isPacker: true, orders: [order('#1', 'A'), order('#2', 'B'), order('#3', 'C')], assignments: handed, packers: [packer], now: 4 });
+  const keys = [...html.matchAll(/class="pq__row[^"]*"[^>]*data-key="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(keys, ['shopify:#2', 'shopify:#3', 'shopify:#1']);
+  assert.doesNotMatch(html, /id="pq-pdf"/, 'no PDF that would count as printed');
+  assert.match(html, /browser ini tidak bisa menyambung ke printer Bluetooth/);
+});
