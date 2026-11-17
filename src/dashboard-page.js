@@ -889,6 +889,11 @@ ${DIRECT_PRINT_CSS}
 .pq__sum{font-size:.85rem; color:var(--muted)}
 .pq__go{min-height:48px; min-width:96px; justify-content:center; font-size:1rem; cursor:pointer}
 .pq__go:disabled{cursor:default}
+.pq__go .ico{display:none; width:18px; height:18px}
+.pq__go[data-mode="pair"]{background:transparent; color:var(--fg); border:1px solid var(--brand); box-shadow:none}
+.pq__go[data-mode="pair"] .ico{display:block}
+.pq__link{display:inline-flex; align-items:center; gap:.4rem} .pq__link .ico{width:16px; height:16px}
+.pq__link[hidden]{display:none}
 .pq__row.is-short{border-color:color-mix(in srgb, var(--bad) 45%, var(--line))}
 .pq__row.is-short .pq__go{background:transparent; color:var(--dim); border:1px solid var(--line); box-shadow:none; opacity:1}
 .pq__short{display:flex; align-items:flex-start; gap:.4rem; margin-top:.35rem; color:var(--bad); font-size:.85rem; line-height:1.35}
@@ -6333,7 +6338,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
         <div class="pq__short" role="note"${short.length ? '' : ' hidden'}>${svg('warn')}<span>${escape(shortageText(short))}</span></div>
       </div>
       <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
-        <span class="pq__go-t">${short.length ? 'Stok kosong' : 'Cetak'}</span>
+        ${svg('printer')}<span class="pq__go-t">${short.length ? 'Stok kosong' : 'Cetak'}</span>
       </button>
       <script type="application/json" class="pq__goods">${goodsJson}</script>
     </li>`;
@@ -6342,7 +6347,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
   return `<div class="pq" id="pq" data-today="${escape(today)}" data-online="${online ? 1 : 0}" data-printer="${escape(printerName)}" data-csrf="${escape(csrf)}" data-size="${escape(size)}">
     <div class="pq__bar">
       <span class="pq__status"><i class="pq__dot ${online ? 'is-on' : ''}" id="pq-dot" aria-hidden="true"></i><span id="pq-state">${escape(online ? `${printerName} siap` : 'Memeriksa printer…')}</span></span>
-      <button class="pq__link" type="button" id="pq-pair" hidden>Sambungkan printer</button>
+      <button class="pq__link" type="button" id="pq-pair" hidden>${svg('printer')}<span>Pilih printer</span></button>
     </div>
     <div class="pq__tabs" role="tablist" aria-label="Status cetak">
       <button class="pq__tab" type="button" role="tab" id="pq-t-todo" aria-controls="pq-p-todo" aria-selected="true" data-tab="todo">Belum dicetak<span class="pq__badge mono" id="pq-n-todo">${rows.length}</span></button>
@@ -6453,6 +6458,31 @@ const PACKER_SCRIPT = `
    * could print but is not connected is told so - its parcel stays where it is.
    */
   var host = null, hostReady = false, hostLive = false, hostName = '';
+  /*
+   * No printer, no Cetak. Until the link is actually up, every printable row's button
+   * reads "Pilih printer" and opens the printer chooser; once the printer answers, the
+   * buttons turn back into Cetak by themselves. A bench agent or a phone with no
+   * Bluetooth at all (the PDF road) needs no pairing.
+   */
+  function printerOk() { return host ? hostLive : (bench || !navigator.bluetooth); }
+  function paintButtons() {
+    var ok = printerOk();
+    todoList.querySelectorAll('.pq__row').forEach(function (row) {
+      if (row === busyRow) return;
+      var btn = row.querySelector('.pq__go'); if (!btn) return;
+      var st = row.getAttribute('data-state');
+      if (st === 'short') { btn.removeAttribute('data-mode'); btn.disabled = true; btn.querySelector('.pq__go-t').textContent = 'Stok kosong'; return; }
+      if (row.getAttribute('data-blocked') === '1') { btn.disabled = true; return; }
+      btn.disabled = false;
+      if (ok) { btn.removeAttribute('data-mode'); btn.querySelector('.pq__go-t').textContent = 'Cetak'; }
+      else { btn.setAttribute('data-mode', 'pair'); btn.querySelector('.pq__go-t').textContent = 'Pilih printer'; }
+    });
+    pairBtn.hidden = ok || !navigator.bluetooth;
+  }
+  function choosePrinter() {
+    if (host) host.postMessage({ type: 'dp:choose' }, location.origin);
+    else { try { localStorage.setItem('dp.host', '1'); } catch (e) {} window.top.location.href = '/api/dashboard?view=printer&go=' + encodeURIComponent(location.pathname + location.search); }
+  }
   try { if (window.parent !== window && window.parent.location.origin === location.origin) host = window.parent; } catch (e) { host = null; }
   function setState(text, tone) { stateEl.textContent = text; dot.className = 'pq__dot ' + (tone || ''); }
   if (host) {
@@ -6461,7 +6491,8 @@ const PACKER_SCRIPT = `
       var m = e.data;
       if (m.type === 'dp:state') {
         hostReady = !!m.connected; hostLive = !!m.live; hostName = m.name || 'printer';
-        if (!busy) setState(hostReady ? (hostName + (hostLive ? ' siap' : ' · tersambung saat mencetak')) : 'Ketuk Sambungkan di bilah atas', hostReady ? (hostLive ? 'is-on' : 'is-busy') : 'is-off');
+        if (!busy) setState(hostLive ? hostName + ' siap' : (m.text && hostReady ? m.text : 'Printer belum tersambung · pilih printer dulu'), hostLive ? 'is-on' : (hostReady ? 'is-busy' : 'is-off'));
+        paintButtons();
       } else if (m.type === 'dp:done' && pending) {
         var p = pending; pending = null;
         if (m.error) {
@@ -6478,15 +6509,12 @@ const PACKER_SCRIPT = `
   } else if (bench) {
     setState(benchName + ' siap', 'is-on');
   } else if (navigator.bluetooth) {
-    setState('Printer belum tersambung', 'is-off');
-    pairBtn.hidden = false;
+    setState('Printer belum tersambung · pilih printer dulu', 'is-off');
   } else {
     setState('Label dibuka sebagai PDF', '');
   }
-  pairBtn.addEventListener('click', function () {
-    try { localStorage.setItem('dp.host', '1'); } catch (e) {}
-    window.top.location.href = '/api/dashboard?view=printer&go=' + encodeURIComponent(location.pathname + location.search);
-  });
+  pairBtn.addEventListener('click', choosePrinter);
+  paintButtons();
 
   /*
    * The shelf, live. The page was drawn against the shelf as it stood then; a minute
@@ -6512,9 +6540,8 @@ const PACKER_SCRIPT = `
       row.setAttribute('data-state', short.length ? 'short' : 'todo');
       note.hidden = !short.length;
       if (short.length) note.querySelector('span').textContent = 'Stok di rak kurang: ' + short.join(', ');
-      btn.disabled = short.length > 0 || row.getAttribute('data-blocked') === '1';
-      btn.querySelector('.pq__go-t').textContent = short.length ? 'Stok kosong' : 'Cetak';
     });
+    paintButtons();
   }
   var shelfAt = 0, shelfBusy = null;
   function pullShelf() {
@@ -6573,7 +6600,7 @@ const PACKER_SCRIPT = `
     busy = false; busyRow = null; closeBtn.disabled = false; step(current, true);
     errEl.textContent = 'Gagal: ' + message; errEl.hidden = false;
     retryBtn.hidden = !retry;
-    if (stateEl && host && !hostReady) setState('Printer belum tersambung', 'is-off');
+    paintButtons();
     pullShelf();
   }
   async function fetchLabel(key, format) {
@@ -6659,6 +6686,7 @@ const PACKER_SCRIPT = `
     var v = e.target.closest('[data-view]');
     if (v) { if (!busy) view(v.closest('.pq__row')); return; }
     var btn = e.target.closest('[data-print]'); if (!btn || busy) return;
+    if (!printerOk()) { choosePrinter(); return; }
     press(btn.closest('.pq__row'));
   });
   retryBtn.addEventListener('click', function () { var r = retry; if (r && !busy) r(); });

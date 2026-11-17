@@ -135,3 +135,13 @@ test('a print to the phone is put on record only when the phone confirms it', as
   assert.match(page, /format: 'confirm'/);
   assert.match(page, /printer belum tersambung/, 'not connected is said, not hidden behind a PDF');
 });
+
+test('without a connected printer the packer is asked to pick one before anything prints', async () => {
+  const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments, packers: [packer] });
+  assert.match(page, /function printerOk\(\) \{ return host \? hostLive/);
+  assert.match(page, /if \(!printerOk\(\)\) \{ choosePrinter\(\); return; \}/);
+  assert.match(page, /'Pilih printer'/);
+  assert.match(page, /type: 'dp:choose'/);
+  const { hostScript, directPrinterFor } = await import('../src/direct-print.js');
+  assert.match(hostScript(directPrinterFor(packer)), /m\.type === 'dp:choose'/);
+});

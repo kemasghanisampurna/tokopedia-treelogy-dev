@@ -788,6 +788,9 @@ export function hostScript(printer) {
     if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
     var m = e.data, reply = function (msg) { try { e.source.postMessage(msg, location.origin); } catch (err) {} };
     if (m.type === 'dp:hello') { tell(); return; }
+    // "Pilih printer" pressed inside the page: the tap there activates this frame too, so
+    // the chooser opens here, where the link lives.
+    if (m.type === 'dp:choose') { if (!busy && navigator.bluetooth) connectBtn.click(); else tell(); return; }
     if (m.type !== 'dp:print') return;
     // A second press while the first is still sending waits its turn, it is not refused.
     queue = queue.then(async function () {
