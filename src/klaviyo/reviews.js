@@ -122,9 +122,13 @@ export const videoUrls = (review) => (review.videos ?? []).map((v) => v?.url).fi
  * buyer who rates the same product again without a word is exactly that - 239 of them
  * on the second import - so the second and later such reviews get a numbered address,
  * and every rating the buyer left is counted.
+ *
+ * `options.unmask` fills back the words a marketplace's filter starred ("tidak co***");
+ * see src/reviews/unmask.js. Without it the text goes as the marketplace sent it.
  */
 export function klaviyoRows(reviews, options = {}) {
   const seen = new Map();
+  const unmask = options.unmask ?? ((text) => text);
   return reviews.map((review) => {
     const product = klaviyoProductFor(review);
     let email = reviewerEmail(review, options);
@@ -142,7 +146,7 @@ export function klaviyoRows(reviews, options = {}) {
       reviewer_name: review.anonymous ? 'Pembeli' : (review.reviewerName || 'Pembeli'),
       rating: Number(review.rating) || 0,
       review_title: '',
-      review_content: String(review.text ?? '').trim(),
+      review_content: unmask(String(review.text ?? '').trim()),
       review_date: stamp(review.createdAt),
       status: 'Published',
       // Every marketplace review sits on an order the marketplace itself verified.

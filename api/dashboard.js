@@ -13,6 +13,7 @@ import { publicBaseUrl } from '../src/config.js';
 import { selectReviews, reviewStats, syncReviews as syncTokopediaReviews } from '../src/tokopedia/reviews.js';
 import { syncShopeeReviews } from '../src/shopee/reviews.js';
 import { toKlaviyoCsv, klaviyoSummary } from '../src/klaviyo/reviews.js';
+import { unmaskerFor } from '../src/reviews/unmask.js';
 import { loadExported, notExported, recordExport } from '../src/klaviyo/exported.js';
 import { loadAllReviews, REVIEW_CHANNELS } from '../src/reviews/combined.js';
 import { parsePaging, withoutPaging } from '../src/paging.js';
@@ -2542,7 +2543,10 @@ export default async function handler(req, res) {
         // Klaviyo never makes a second copy of a review it already has.
         const onlyNew = url.searchParams.get('only') === 'new';
         const chosen = onlyNew ? notExported(reviews, exported) : reviews;
-        const csv = toKlaviyoCsv(chosen, { perReviewer });
+        // Words the marketplace starred are guessed back from every review we hold, not
+        // just the ones in this file, so a small "baru" file guesses as well as a full one.
+        const unmask = unmaskerFor(Object.values(doc?.reviews ?? {}));
+        const csv = toKlaviyoCsv(chosen, { perReviewer, unmask });
         const summary = klaviyoSummary(chosen);
         // Every file marks what it carried, the full one included: whatever has left in
         // any file is no longer new.
