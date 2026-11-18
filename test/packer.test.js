@@ -335,3 +335,15 @@ test('a yes to "Tugaskan n pesanan ke ...?" sends the hand-out, it does not ask 
   const ask = html.indexOf('window.treelogyConfirm(question)');
   assert.ok(stock > 0 && ask > stock, 'the stock check is bound before the question');
 });
+
+test('a label already printed reprints for anybody who prints; the hand-out holds only the first print', async () => {
+  const { mayPrint, splitPrintable } = await import('../src/label-assign.js');
+  const handed = applyAssign(null, ['shopify:#1', 'shopify:#2', 'shopify:#3'], packer, agas);
+  const printed = { 'shopify:#1': { at: 1 }, 'shopify:#2': { at: 1, stale: true } };
+  const owner = { email: 'kemas@x', role: 'owner' };
+  // #1 printed: reprints. #2 printed but edited since: back to the packer. #3 not printed: the packer's.
+  assert.deepEqual(splitPrintable(handed, ['shopify:#1', 'shopify:#2', 'shopify:#3'], owner, printed).mine, ['shopify:#1']);
+  assert.equal(mayPrint(owner, handed.orders['shopify:#3']), false);
+  assert.equal(mayPrint({ email: 'other@x', role: 'packer' }, handed.orders['shopify:#1'], { printed: true }), false, 'a packer still prints only theirs');
+  assert.equal(mayPrint(packer, handed.orders['shopify:#1'], { printed: true }), true);
+});

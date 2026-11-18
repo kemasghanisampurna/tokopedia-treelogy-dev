@@ -16,7 +16,7 @@ import { ageOf } from './mekari/heartbeat.js';
 import { REVIEW_CHANNELS } from './reviews/combined.js';
 import { paginate, pageHref, pageWindow, PER_PAGE_OPTIONS, DEFAULT_PER_PAGE } from './paging.js';
 import { can, canView, homeView, ROLES } from './users.js';
-import { assignmentFor, mayPrint } from './label-assign.js';
+import { assignmentFor, mayPrint, printedStill } from './label-assign.js';
 import { shortagesFor, shortageText, needsFor } from './warehouse-reserve.js';
 import { boardGoods } from './label-board.js';
 import { phoneForCourier } from './phone.js';
@@ -6232,7 +6232,7 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
   const times = Number(entry?.times ?? 0);
   // Handed to a packer: theirs to print (mayPrint). Still tickable, for Tugaskan/Lepas,
   // but never ticked for a print and never sent with one.
-  const held = Boolean(viewer && assigned && !mayPrint(viewer, assigned));
+  const held = Boolean(viewer && assigned && !mayPrint(viewer, assigned, { printed: printedStill(entry) }));
   const heldBy = held ? (assigned.name || assigned.to) : '';
   // Nothing on the shelf to pack (src/shelf-gate.js): not printed, not handed out.
   const isShort = short.length > 0;
@@ -7863,7 +7863,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     // only on the page so the search can reach it, and anything past what one print run
     // accepts.
     const gone = Boolean(readiness.unavailable);
-    const held = Boolean(assigned && !mayPrint(user, assigned));
+    const held = Boolean(assigned && !mayPrint(user, assigned, { printed: printedStill(entry) }));
     const short = showReprints ? [] : shortOnShelf(shelf, shelfTurn, o);
     const on = !gone && !out && !held && !short.length && ticked < MAX_PRESELECT;
     if (on) ticked += 1;

@@ -53,20 +53,30 @@ export const assignedTo = (doc, orders, email) => orders.filter((o) => assignmen
  * what nobody has been handed; to print a handed parcel themselves, they take it back
  * first ("Lepas"), which the packer's page then shows.
  */
-export function mayPrint(user, assignment) {
+export function mayPrint(user, assignment, { printed = false } = {}) {
   if (!user) return false;
   if (user.role === 'packer') return assignment?.to === user.email;
+  // Already printed (and unchanged since): the packer's job is done, and a reprint - a
+  // torn or smudged label - is anybody's who prints. The hand-out held only the first
+  // print; holding reprints too left "Cetak 0 label" on the reprint list (18 Nov).
+  if (printed) return true;
   return !assignment || assignment.to === user.email;
 }
 
-/** Order keys ("channel:id") split into what this person may print and what is held. */
-export function splitPrintable(doc, keys, user) {
+/** A printed-ledger entry that still stands: printed, and not edited since. */
+export const printedStill = (entry) => Boolean(entry && !entry.stale);
+
+/**
+ * Order keys ("channel:id") split into what this person may print and what is held.
+ * @param {Record<string, {stale?: boolean}>} [printed] the printed ledger: a parcel on it reprints freely
+ */
+export function splitPrintable(doc, keys, user, printed = {}) {
   const orders = base(doc).orders;
   const mine = [];
   const held = [];
   for (const key of keys) {
     const a = orders[key] ?? null;
-    if (mayPrint(user, a)) mine.push(key);
+    if (mayPrint(user, a, { printed: printedStill(printed?.[key]) })) mine.push(key);
     else held.push({ key, to: a?.to ?? null, name: a?.name || a?.to || null });
   }
   return { mine, held };

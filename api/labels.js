@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { markPrinted } from '../src/shopify/label.js';
+import { markPrinted, printedLabels } from '../src/shopify/label.js';
 import { heldOrders, activeHold } from '../src/shopify/hold.js';
 import { warehouseSweep } from '../src/warehouse-run.js';
 import { buildLabelSheet, LABEL_SIZES, DEFAULT_SIZE } from '../src/labels.js';
@@ -116,7 +116,9 @@ export default async function handler(req, res) {
   // Refused whole, by name, rather than quietly printed short.
   const handed = await loadAssignments().catch(() => null);
   if (!handed) { fail(503, 'Daftar tugas tidak terbaca', 'Coba lagi sebentar.'); return; }
-  const { held } = splitPrintable(handed, [...selected].map(([id, channel]) => `${channel}:${id}`), user);
+  // A parcel already printed reprints freely: the hand-out holds only its first print.
+  const ledger = await printedLabels().catch(() => ({}));
+  const { held } = splitPrintable(handed, [...selected].map(([id, channel]) => `${channel}:${id}`), user, ledger);
   if (held.length) {
     fail(403, user.role === 'packer' ? 'Bukan tugasmu' : 'Sudah ditugaskan ke packer', heldText(held, user));
     return;
@@ -292,7 +294,7 @@ async function confirmPrint(form, user, req, res, fail) {
   let keys = ticket?.keys ?? [];
   if (!ticket) {
     // Outlived a restart: the keys the page carries, held to what this person may print.
-    keys = splitPrintable(await loadAssignments(), form.getAll('order').map(String).filter((v) => SELECTION.test(v)), user).mine;
+    keys = splitPrintable(await loadAssignments(), form.getAll('order').map(String).filter((v) => SELECTION.test(v)), user, await printedLabels().catch(() => ({}))).mine;
   }
   if (keys.length === 0) { fail(400, 'Tidak ada yang dicatat', 'Tiket cetak tidak dikenal.'); return; }
   tickets.delete(String(form.get('ticket') ?? ''));
