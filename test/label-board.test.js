@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { boardSnapshot, boardUnknown, BOARD_PRINTED_WINDOW_SEC } from '../src/label-board.js';
+import { boardSnapshot, boardUnknown, boardGoods, BOARD_PRINTED_WINDOW_SEC } from '../src/label-board.js';
 
 /*
  * The hand-out board is the assignment document and the printed ledger side by side.
@@ -80,4 +80,34 @@ test('a parcel marked printed without printing says so', () => {
     now: NOW,
   });
   assert.equal(snap.printed[0].marked, true);
+});
+
+test('each card says what goes into the box, in the catalogue\'s words, bundles broken into parts', () => {
+  const goods = boardGoods([
+    { sku: 'OMC90', name: 'Kapsul Daun Kelor Organik Treelogy isi 90 kapsul', qty: 2 },  // TikTok's spelling
+    { sku: 'Oil-3ml', name: 'Sample oil', qty: 1 },                                     // Shopee's
+    { sku: 'GFT-MYST-001', name: 'Mystery gift', qty: 1 },                              // the same oil, Shopify's
+    { sku: 'Inside-Out-60-Protocol180+30', qty: 1 },
+    { sku: 'NOT-IN-CATALOGUE', name: 'Barang lama', variant: 'L', qty: 1 },
+    { sku: 'OMP-45-001', qty: 0 },
+  ], { 'OMC-90-001': { thumb: 'https://img/c90.jpg' } });
+  assert.deepEqual(goods.map((g) => [g.name, g.variant, g.qty]), [
+    ['Moringa Capsules', '90 caps', 2],
+    ['Moringa Seed Oil 3 ml', '', 2],
+    ['Inside Out Protocol 60 Days', 'Caps 180 + Oil 30ml', 1],
+    ['Barang lama', 'L', 1],
+  ]);
+  assert.equal(goods[0].img, 'https://img/c90.jpg', 'pictured by its master SKU');
+  assert.deepEqual(goods[2].parts, [{ name: 'Moringa Capsules', variant: '180 caps', qty: 1 }, { name: 'Moringa Seed Oil', variant: '30 ml', qty: 1 }]);
+
+  const snap = boardSnapshot({
+    assignments: { orders: { 'shopify:#1': handed(5), 'shopify:#6': handed(30) } },
+    printed: { 'shopify:#6': { at: NOW - 60 } },
+    outstanding: [order('#1', { lines: [{ sku: 'OMC-270-001', qty: 1 }] })],
+    arranged,
+    known: { 'shopify:#6': { buyer: 'Irma', lines: [{ sku: 'OMP45', qty: 1 }] } },
+    now: NOW,
+  });
+  assert.deepEqual(snap.pending[0].goods.map((g) => `${g.name} ${g.variant}`), ['Moringa Capsules 270 caps']);
+  assert.deepEqual(snap.printed[0].goods.map((g) => `${g.name} ${g.variant}`), ['Moringa Powder 45 gram'], 'a parcel gone from the worklist still says what was in it');
 });

@@ -380,7 +380,10 @@ async function readLabelBoard() {
   ]);
   const [holds, refunds] = await Promise.all([heldOrders().catch(() => ({})), loadRefunds().catch(() => null)]);
   const outstanding = withHolds(refunds ? withoutRefunds(open, refunds) : open, holds).orders ?? [];
-  for (const o of outstanding) boardBuyers.set(`${o.channel}:${o.id}`, { buyer: o.buyer ?? null, source: o.source ?? null });
+  // Buyer and goods of every parcel the board may show, kept for when it has left the
+  // worklist (printed, then shipped) and the card still wants to say what was in it.
+  const slim = (o) => ({ buyer: o?.buyer ?? null, source: o?.source ?? null, lines: (o?.lines ?? []).map((l) => ({ sku: l.sku ?? '', name: l.name ?? '', variant: l.variant ?? '', qty: l.qty })) });
+  for (const o of outstanding) boardBuyers.set(`${o.channel}:${o.id}`, slim(o));
   const now = Math.floor(Date.now() / 1000);
   const known = Object.fromEntries(boardBuyers);
   const missing = boardUnknown({ assignments, printed, outstanding, known, now }).slice(0, 60);
@@ -391,12 +394,13 @@ async function readLabelBoard() {
     // asked about again every three seconds.
     for (const k of missing) {
       const o = byKey.get(k);
-      boardBuyers.set(k, { buyer: o?.buyer ?? null, source: o?.source ?? null });
+      boardBuyers.set(k, slim(o));
       known[k] = boardBuyers.get(k);
     }
   }
   const people = Object.fromEntries(roster.map((u) => [u.email, u.name || u.email]));
-  return boardSnapshot({ assignments, printed, outstanding, arranged, known, people, now });
+  const images = await imagesByKey().catch(() => ({}));
+  return boardSnapshot({ assignments, printed, outstanding, arranged, known, people, images, now });
 }
 
 /**

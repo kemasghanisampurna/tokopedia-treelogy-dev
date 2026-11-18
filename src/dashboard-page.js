@@ -6975,6 +6975,27 @@ export function labelBoard({ packers = [] } = {}) {
 .lbw__id{font-family:"Fira Code",ui-monospace,monospace; font-size:.84rem; font-weight:600; white-space:nowrap}
 .lbw__card .tag{font-size:.64rem; padding:.1rem .4rem}
 .lbw__buyer{font-size:.8rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lbw__sum{align-self:flex-start; display:inline-flex; align-items:center; gap:.3rem; margin-top:.2rem; padding:.18rem .45rem .18rem .55rem;
+  border-radius:999px; border:1px solid var(--glass-line); background:transparent; color:var(--muted); font:inherit; font-size:.72rem; white-space:nowrap;
+  cursor:pointer; transition:color .15s, border-color .15s, background-color .15s}
+.lbw__sum[hidden]{display:none}
+.lbw__sum:hover{color:var(--fg); border-color:color-mix(in srgb,var(--pk) 40%,var(--glass-line))}
+.lbw__sum:focus-visible{outline:2px solid var(--pk); outline-offset:2px}
+.lbw__sum .ico{width:12px; height:12px; transition:transform .22s var(--ease-out)}
+.lbw__sum[aria-expanded="true"]{color:var(--pk); border-color:color-mix(in srgb,var(--pk) 45%,transparent); background:color-mix(in srgb,var(--pk) 10%,transparent)}
+.lbw__sum[aria-expanded="true"] .ico{transform:rotate(90deg)}
+.lbw__goods{grid-column:1/-1; padding-top:.6rem; border-top:1px dashed var(--glass-line)}
+.lbw__goods[hidden]{display:none}
+.lbw__gl{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.5rem}
+.lbw__g{display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; column-gap:.65rem}
+.lbw__gimg{width:34px; height:34px; border-radius:9px; object-fit:cover; background:var(--panel-2); border:1px solid var(--glass-line)}
+.lbw__gn{min-width:0; display:flex; flex-direction:column; line-height:1.3}
+.lbw__gn b{font-size:.8rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lbw__gn small{font-size:.7rem; color:var(--dim)}
+.lbw__gq{font-family:"Fira Code",ui-monospace,monospace; font-size:.8rem; font-weight:600; font-variant-numeric:tabular-nums}
+.lbw__gp{grid-column:2/-1; list-style:none; margin:.3rem 0 0; padding:0 0 0 .65rem; border-left:2px solid var(--glass-line); display:flex; flex-direction:column; gap:.2rem}
+.lbw__gp li{display:flex; justify-content:space-between; gap:.6rem; font-size:.72rem; color:var(--muted)}
+.lbw__gp li span:last-child{font-family:"Fira Code",ui-monospace,monospace; font-variant-numeric:tabular-nums}
 .lbw__meta{display:flex; flex-direction:column; align-items:flex-end; gap:.2rem; text-align:right; min-width:0}
 .lbw__who{font-size:.82rem; font-weight:600; white-space:nowrap}
 .lbw__when{display:flex; align-items:center; gap:.3rem; font-size:.72rem; color:var(--dim); white-space:nowrap; font-variant-numeric:tabular-nums}
@@ -7020,6 +7041,7 @@ export function labelBoard({ packers = [] } = {}) {
   .lbw__list{padding:.5rem}
   .lbw__card{grid-template-columns:32px minmax(0,1fr) auto; gap:.65rem; padding:.7rem}
   .lbw__ava{width:32px; height:32px; border-radius:10px}
+  .lbw__sum{padding:.4rem .7rem .4rem .75rem; font-size:.76rem}
   .lbw__clk{display:none}
 }
 @keyframes lbwSheet{from{transform:translateY(24px); opacity:0}to{transform:none; opacity:1}}
@@ -7046,11 +7068,13 @@ export function labelBoard({ packers = [] } = {}) {
   var say = document.getElementById('lbw-say');
   var ZONE = ${JSON.stringify(zoneName())};
   var CHECK = ${JSON.stringify(svg('check'))};
+  var CHEV = ${JSON.stringify(svg('chevR'))};
   var HUES = ['--brand', '--info', '--act', '--done', '--accent', '--warn'];
   var EXPO = 'cubic-bezier(.16,1,.3,1)';
   var POLL_MS = 3000;
 
   var nodes = {};      // key -> card element
+  var opened = {};     // key -> true: cards whose goods are showing, kept across redraws
   var side = {};       // key -> 'todo' | 'done', as last drawn
   var filter = '';
   var days = [0];      // ticked: 0 today, 1 yesterday, 2 the day before - in the house clock
@@ -7091,8 +7115,10 @@ export function labelBoard({ packers = [] } = {}) {
     var li = document.createElement('li');
     li.className = 'lbw__card';
     li.innerHTML = '<span class="lbw__ava" aria-hidden="true"></span>'
-      + '<span class="lbw__main"><span class="lbw__row"><b class="lbw__id"></b><span class="tag"></span></span><span class="lbw__buyer"></span></span>'
-      + '<span class="lbw__meta"><span class="lbw__who"></span><span class="lbw__when"></span></span>';
+      + '<span class="lbw__main"><span class="lbw__row"><b class="lbw__id"></b><span class="tag"></span></span><span class="lbw__buyer"></span>'
+      + '<button class="lbw__sum" type="button" aria-expanded="false"><span class="lbw__sum-t"></span>' + CHEV + '</button></span>'
+      + '<span class="lbw__meta"><span class="lbw__who"></span><span class="lbw__when"></span></span>'
+      + '<div class="lbw__goods" hidden><ul class="lbw__gl"></ul></div>';
     return li;
   }
   // Text only, through textContent: a buyer's name is typed by a stranger.
@@ -7107,6 +7133,7 @@ export function labelBoard({ packers = [] } = {}) {
     tag.style.setProperty('--accent', item.tag.accent);
     li.querySelector('.lbw__buyer').textContent = item.buyer || 'tanpa nama';
     li.querySelector('.lbw__who').textContent = item.packer || '-';
+    fillGoods(li, item);
     var when = li.querySelector('.lbw__when');
     if (where === 'done') {
       when.innerHTML = CHECK;
@@ -7126,6 +7153,71 @@ export function labelBoard({ packers = [] } = {}) {
       else if (waited >= 1800) when.setAttribute('data-age', 'warn');
       else when.removeAttribute('data-age');
       li.title = 'Ditugaskan ke ' + (item.packer || '-') + ' pukul ' + clock(item.assignedAt) + (item.by ? ' oleh ' + item.by : '');
+    }
+  }
+
+  /*
+   * What goes into the box, behind one tap: "2 produk · 3 barang". The names are the
+   * catalogue's (src/label-board.js boardGoods), the same on every channel's card; a
+   * bundle lists its parts underneath. Built from text nodes only. Redrawn only when the
+   * goods changed, so a poll does not flicker an open list.
+   */
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function fillGoods(li, item) {
+    var goods = item.goods || [];
+    var btn = li.querySelector('.lbw__sum');
+    var panel = li.querySelector('.lbw__goods');
+    var units = goods.reduce(function (n, g) { return n + (Number(g.qty) || 0); }, 0);
+    btn.hidden = !goods.length;
+    li.querySelector('.lbw__sum-t').textContent = goods.length + ' produk · ' + units + ' barang';
+    panel.id = 'lbw-g-' + item.key;
+    btn.setAttribute('aria-controls', panel.id);
+    btn.setAttribute('aria-label', (opened[item.key] ? 'Sembunyikan' : 'Lihat') + ' isi paket ' + item.id + ': ' + goods.length + ' produk, ' + units + ' barang');
+    var sig = JSON.stringify(goods);
+    if (li._goods !== sig) {
+      li._goods = sig;
+      var list = panel.querySelector('.lbw__gl');
+      list.textContent = '';
+      goods.forEach(function (g) {
+        var row = el('li', 'lbw__g');
+        if (g.img) {
+          var img = el('img', 'lbw__gimg');
+          img.alt = ''; img.width = 34; img.height = 34; img.loading = 'lazy'; img.decoding = 'async'; img.src = g.img;
+          row.appendChild(img);
+        } else row.appendChild(el('span', 'lbw__gimg'));
+        var name = el('span', 'lbw__gn');
+        name.appendChild(el('b', '', g.name));
+        if (g.variant) name.appendChild(el('small', '', g.variant));
+        row.appendChild(name);
+        row.appendChild(el('span', 'lbw__gq', '×' + g.qty));
+        if (g.parts && g.parts.length) {
+          var parts = el('ul', 'lbw__gp');
+          g.parts.forEach(function (p) {
+            var part = el('li');
+            part.appendChild(el('span', '', p.name + (p.variant ? ' · ' + p.variant : '')));
+            part.appendChild(el('span', '', '×' + p.qty));
+            parts.appendChild(part);
+          });
+          row.appendChild(parts);
+        }
+        list.appendChild(row);
+      });
+    }
+    showGoods(li, !!opened[item.key] && goods.length > 0, false);
+  }
+  function showGoods(li, on, animate) {
+    var btn = li.querySelector('.lbw__sum');
+    var panel = li.querySelector('.lbw__goods');
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (panel.hidden === !on) return;
+    panel.hidden = !on;
+    if (on && animate && !reduced()) {
+      panel.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: EXPO });
     }
   }
 
@@ -7321,7 +7413,18 @@ export function labelBoard({ packers = [] } = {}) {
     tick();
   });
   document.getElementById('lbw-x').addEventListener('click', function () { dialog.close(); });
-  dialog.addEventListener('click', function (e) { if (e.target === dialog) dialog.close(); });
+  dialog.addEventListener('click', function (e) {
+    if (e.target === dialog) { dialog.close(); return; }
+    var btn = e.target.closest && e.target.closest('.lbw__sum');
+    if (!btn) return;
+    var li = btn.closest('.lbw__card');
+    var key = li && li.dataset.key;
+    if (!key) return;
+    if (opened[key]) delete opened[key]; else opened[key] = true;
+    showGoods(li, !!opened[key], true);
+    var label = btn.getAttribute('aria-label') || '';
+    btn.setAttribute('aria-label', label.replace(/^(Lihat|Sembunyikan)/, opened[key] ? 'Sembunyikan' : 'Lihat'));
+  });
   dialog.addEventListener('close', function () { clearTimeout(timer); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden && dialog.open) tick(); });
   var dayBoxes = dialog.querySelectorAll('.lbw__day input');
