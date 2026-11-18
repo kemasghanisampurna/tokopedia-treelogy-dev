@@ -345,7 +345,7 @@ function tableFilter(key, word, all, values, blank = '', plain = word) {
   const counts = new Map();
   for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
   if (counts.size < 2) return escape(plain);
-  const options = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  const options = [...counts].sort((a, b) => (key === 'products' ? a[0].localeCompare(b[0]) : b[1] - a[1] || a[0].localeCompare(b[0])))
     .map(([v, n]) => `<option value="${escape(v)}">${escape(v || blank)} (${n})</option>`).join('');
   return `<label class="lbf"><span class="lbf__w">${escape(word)}</span><select class="lbf__s" data-filter="${escape(key)}" aria-label="Saring ${escape(word.toLowerCase())}"><option value="*">${escape(all)}</option>${options}</select></label>`;
 }
@@ -357,6 +357,19 @@ function channelLabel(order) {
 }
 /** The courier a row is filtered by: as the platform names it, or none yet. */
 const carrierOf = (order) => String(order.carrier ?? '').trim();
+/**
+ * The products a row is filtered by, in catalogue names, once each. A bundle counts as
+ * itself and as each of its parts: looking for the 180 capsules finds the protocol that
+ * has them inside too, because that is a jar off the same shelf.
+ */
+function productsOf(order) {
+  const out = new Set();
+  for (const g of boardGoods(order.lines)) {
+    out.add([g.name, g.variant].filter(Boolean).join(' '));
+    for (const part of g.parts) out.add([part.name, part.variant].filter(Boolean).join(' '));
+  }
+  return [...out];
+}
 
 /** Escaped: a marketplace order at what it pays out, anything else at its own total. */
 function orderWorth(order) {
@@ -6221,7 +6234,7 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
   const isShort = short.length > 0;
   if (held || isShort) on = false;
   const why = [extra || (readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : ''), held ? `dicetak oleh ${heldBy} - lepas tugasnya dulu untuk mencetak sendiri` : ''].filter(Boolean).join(' · ');
-  return `<tr data-id="${escape(String(o.id).toLowerCase())}" data-ch="${escape(channelLabel(o))}" data-carrier="${escape(carrierOf(o))}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
+  return `<tr data-id="${escape(String(o.id).toLowerCase())}" data-ch="${escape(channelLabel(o))}" data-carrier="${escape(carrierOf(o))}" data-products="${escape(`|${productsOf(o).join('|')}|`)}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
       <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}${isShort ? ' data-short="1"' : ''}${stock}
         ${batchKey ? `data-batch="${escape(batchKey)}"` : ''}${out ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">`}</td>
       <td>${channelTag(o)}</td>
@@ -8093,7 +8106,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
             <thead><tr>
               <th><input type="checkbox" id="head" checked aria-label="Pilih semua"></th>
               ${showReprints ? '<th>Kanal</th><th>Pesanan</th>' : `<th>${tableFilter('ch', 'Kanal', 'Semua kanal', candidates.map(({ order }) => channelLabel(order)))}</th>
-              <th><span class="lbf__row">Pesanan ${tableFilter('carrier', 'Kurir', 'Semua kurir', candidates.map(({ order }) => carrierOf(order)), 'Belum ada kurir', '')}</span></th>`}<th>Pembeli</th><th>Label</th>
+              <th><span class="lbf__row">Pesanan ${tableFilter('carrier', 'Kurir', 'Semua kurir', candidates.map(({ order }) => carrierOf(order)), 'Belum ada kurir', '')}${tableFilter('products', 'Produk', 'Semua produk', candidates.flatMap(({ order }) => productsOf(order)), '', '')}</span></th>`}<th>Pembeli</th><th>Label</th>
             </tr></thead>
             <tbody id="lb-rows">${rows}</tbody>
             <tbody id="lbq-more"></tbody>
@@ -8384,7 +8397,12 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     // The heading filters (Kanal, Kurir) narrow the list the same way the search does.
     var filters = Array.prototype.slice.call(form.querySelectorAll('.lbf__s'));
     function passes(row) {
-      return filters.every(function (f) { return f.value === '*' || row.getAttribute('data-' + f.getAttribute('data-filter')) === f.value; });
+      return filters.every(function (f) {
+        if (f.value === '*') return true;
+        var key = f.getAttribute('data-filter'), have = row.getAttribute('data-' + key) || '';
+        // A row holds several products: it passes when the one picked is among them.
+        return key === 'products' ? have.indexOf('|' + f.value + '|') !== -1 : have === f.value;
+      });
     }
     filters.forEach(function (f) {
       f.addEventListener('change', function () {
@@ -8392,7 +8410,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         var label = f.closest('.lbf');
         label.classList.toggle('is-on', on);
         var opt = f.options[f.selectedIndex];
-        label.querySelector('.lbf__w').setAttribute('data-pick', on ? opt.text.slice(0, opt.text.lastIndexOf(' (')) : '');
+        label.querySelector('.lbf__w').setAttribute('data-pick', on && opt ? opt.text.slice(0, opt.text.lastIndexOf(' (')) : '');
         apply();
       });
     });

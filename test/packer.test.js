@@ -300,3 +300,13 @@ test('the label table filters by channel and by courier from its headings', () =
   assert.doesNotMatch(html, /data-filter="ch"/, 'one channel on the list: a plain heading');
   assert.match(html, /&& passes\(row\)/, 'applied with the search, so hidden rows are not printed');
 });
+
+test('the label table filters by product too, a bundle counting for its parts', () => {
+  const mk = (id, lines) => ({ ...order(id, 'W'), lines });
+  const orders = [mk('#1', [{ sku: 'OMC90', qty: 1 }, { sku: 'Oil-3ml', qty: 1 }]), mk('#2', [{ sku: 'Inside-Out-60-Protocol180+30', qty: 1 }])];
+  const html = renderLabels({ ...base, arranged: { '#1': 1, '#2': 1 }, user: agas, orders, assignments: null, packers: [packer] });
+  assert.match(html, /<tr data-id="#1"[^>]*data-products="\|Moringa Capsules 90 caps\|Moringa Seed Oil 3 ml\|"/, 'catalogue names, whatever the channel spelled');
+  assert.match(html, /<tr data-id="#2"[^>]*data-products="\|Inside Out Protocol 60 Days Caps 180 \+ Oil 30ml\|Moringa Capsules 180 caps\|Moringa Seed Oil 30 ml\|"/);
+  assert.match(html, /data-filter="products"[^>]*><option value="\*">Semua produk<\/option><option value="Inside Out Protocol/, 'listed by name');
+  assert.match(html, /key === 'products' \? have\.indexOf\('\|' \+ f\.value \+ '\|'\) !== -1/);
+});
