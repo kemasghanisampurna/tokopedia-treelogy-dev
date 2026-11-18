@@ -87,6 +87,18 @@ test('the chooser lists printers only, the whole room only on request, and Tes s
   assert.match(script, /ctx\.fillText\(name, 40, 140\);/);
   const page = directPrintHostPage({ printer: { model: 'OKAY D100', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 }, go: '/api/dashboard?view=labels' });
   assert.match(page, /<button class="btn" type="button" id="test" hidden/);
+  // "Semua perangkat" is always on the bar, not only after a cancelled list.
+  assert.match(page, /<button class="leave" type="button" id="all"[^>]*>Semua perangkat<\/button>/);
+  assert.match(script, /allBtn\.addEventListener\('click', chooseAll\);/);
+});
+
+test('an open printer bar reloads itself once when the page in its frame comes from a newer server', async () => {
+  const { DP_BUILD, directPrintEnterScript } = await import('../src/direct-print.js');
+  assert.ok(directPrintEnterScript().startsWith(`window.__dpBuild=${JSON.stringify(DP_BUILD)};`));
+  const script = hostScript({ model: 'x', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 });
+  assert.match(script, new RegExp(`var BUILD = "${DP_BUILD}";`));
+  assert.match(script, /drawn !== BUILD && !busy && sessionStorage\.getItem\('dp\.reloadedFor'\) !== drawn/, 'once per server, never mid-print');
+  new Function(script);
 });
 
 test('the host frames only dashboard pages, never itself or another site', () => {

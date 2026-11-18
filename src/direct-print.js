@@ -242,8 +242,16 @@ function noBluetoothNoticeFn() {
  * host on this phone, every later visit that lands outside it is moved inside, before
  * anything is drawn. Inside the frame (or on the host itself) it does nothing.
  */
+/**
+ * Which server drew a page: set once when the server starts. The host page never
+ * navigates, so after a deploy it kept running the old printer bar (18 Nov: the new
+ * "Semua perangkat" never showed). Every page inside the frame carries this; the host
+ * compares and reloads itself once when the frame is newer.
+ */
+export const DP_BUILD = String(Date.now());
+
 export function directPrintEnterScript() {
-  return `(function(){try{if(window.top!==window.self)return;if(/[?&]view=printer(&|$)/.test(location.search))return;
+  return `window.__dpBuild=${JSON.stringify(DP_BUILD)};(function(){try{if(window.top!==window.self)return;if(/[?&]view=printer(&|$)/.test(location.search))return;
 if(localStorage.getItem('dp.host')!=='1')return;
 location.replace(${JSON.stringify(HOST_PATH)}+'&go='+encodeURIComponent(location.pathname+location.search));}catch(e){}})();`;
 }
@@ -464,6 +472,7 @@ iframe{flex:1; width:100%; border:0; background:var(--bg)}
 .nb{padding:.6rem .9rem; border-bottom:1px solid var(--line); font-size:.9rem} .nb__p{margin:.3rem 0; color:var(--muted)} .nb__p b{color:var(--fg)}
 .nb__row{display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0}
 .chip{display:inline-flex; align-items:center; min-height:36px; padding:0 .9rem; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); font:inherit; font-size:.9rem; cursor:pointer; text-decoration:none}
+@media (max-width:480px){.name{display:none} .bar{flex-wrap:wrap; gap:.4rem .6rem; padding:.5rem .8rem} .state{flex:1 1 calc(100% - 1.4rem)}}
 @supports (height: 100dvh){html,body{height:100dvh}}
 @media (prefers-reduced-motion: reduce){.dot,.prog span{transition:none}}
 </style>
@@ -474,6 +483,7 @@ iframe{flex:1; width:100%; border:0; background:var(--bg)}
   <span class="state" id="state" role="status" aria-live="polite">Mencari printer…</span>
   <button class="btn" type="button" id="test" hidden title="Cetak penanda di printer yang tersambung">Tes</button>
   <button class="btn btn--go" type="button" id="connect">Sambungkan</button>
+  <button class="leave" type="button" id="all" title="Pilih printer dari semua perangkat Bluetooth di sekitar">Semua perangkat</button>
   <button class="leave" type="button" id="leave" title="Keluar dari mode printer">Keluar</button>
 </div>
 <div class="prog" id="prog" hidden><span id="fill"></span></div>
@@ -491,6 +501,7 @@ export function hostScript(printer) {
   var SERVICES = ${JSON.stringify(PRINTER_SERVICES)};
   var NAMES = ${JSON.stringify(PRINTER_NAME_PREFIXES)};
   var HOST = ${JSON.stringify(HOST_PATH)};
+  var BUILD = ${JSON.stringify(DP_BUILD)};
   var packMono = ${packMono.toString()};
   var ascii = ${ascii.toString()};
   var join = ${join.toString()};
@@ -527,6 +538,16 @@ export function hostScript(printer) {
   frame.addEventListener('load', function () {
     var path = framePath();
     if (path) history.replaceState(null, '', HOST + '&go=' + encodeURIComponent(path));
+    // A page from a newer server than this bar: the bar reloads itself (once per server),
+    // onto the same page, and finds its printer again on its own (resume).
+    try {
+      var drawn = frame.contentWindow.__dpBuild;
+      if (drawn && drawn !== BUILD && !busy && sessionStorage.getItem('dp.reloadedFor') !== drawn) {
+        sessionStorage.setItem('dp.reloadedFor', drawn);
+        location.reload();
+        return;
+      }
+    } catch (e) {}
     try { document.title = frame.contentDocument.title || 'Treelogy'; } catch (e) {}
     tell();
   });
@@ -667,11 +688,19 @@ export function hostScript(printer) {
     nbBox.innerHTML = '<p class="nb__p">Printer tidak ada di daftar? Pastikan printer menyala dan dekat HP, lalu coba lagi - atau pilih dari semua perangkat Bluetooth.</p>'
       + '<div class="nb__row"><button class="chip" type="button" id="nb-all">Tampilkan semua perangkat</button><button class="chip" type="button" id="nb-x">Tutup</button></div>';
     $('nb-x').addEventListener('click', function () { nbBox.hidden = true; });
-    $('nb-all').addEventListener('click', function () {
-      nbBox.hidden = true;
-      choose(true).catch(function (e) { ch = null; say(e.name === 'NotFoundError' ? 'Batal memilih printer.' : 'Gagal menyambung: ' + e.message, 'is-off'); ready(); });
-    });
+    $('nb-all').addEventListener('click', function () { nbBox.hidden = true; chooseAll(); });
   }
+  function chooseAll() {
+    if (busy || !navigator.bluetooth) return;
+    if (linkTimer) { clearTimeout(linkTimer); linkTimer = null; }
+    if (device && device.gatt.connected) { releasing = true; device.gatt.disconnect(); }
+    choose(true).catch(function (e) { ch = null; say(e.name === 'NotFoundError' ? 'Batal memilih printer.' : 'Gagal menyambung: ' + e.message, 'is-off'); ready(); });
+  }
+  // Always there, beside Sambungkan: a printer the filtered list does not know - a new one
+  // whose name is not on it yet - is one tap away, not hidden behind a cancelled list.
+  var allBtn = $('all');
+  if (!navigator.bluetooth) allBtn.hidden = true;
+  allBtn.addEventListener('click', chooseAll);
   async function choose(all) {
     say('Pilih printer di daftar…', 'is-busy');
     if (nbBox && navigator.bluetooth) nbBox.hidden = true;
