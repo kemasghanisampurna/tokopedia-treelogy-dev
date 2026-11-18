@@ -277,3 +277,15 @@ test('a bulk hand-out or print adds the ticked parcels up per shelf item and ask
   const packerPage = renderLabels({ ...all, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer], shelf });
   assert.doesNotMatch(packerPage, /id="stk"/, 'a packer prints one parcel at a time and has no bulk to check');
 });
+
+test('every packer chip keeps its count whichever chip is pressed', () => {
+  const two = { email: 'cici@treelogy.com', name: 'Cici', role: 'packer', status: 'active' };
+  const handed = applyAssign(null, ['shopify:#1'], packer, agas);
+  const counts = { all: 5, none: 2, by: { [packer.email]: 3 } };
+  // Pressed "Budi": the page holds Budi's rows only, the counts are the whole worklist's.
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W')], assignments: handed, packers: [packer, two], packerFilter: packer.email, packerCounts: counts });
+  assert.match(html, /href="\?view=labels">Semua &middot; 5</);
+  assert.match(html, /Belum ditugaskan &middot; 2</);
+  assert.match(html, /Budi &middot; 3</);
+  assert.match(html, /Cici &middot; 0</);
+});

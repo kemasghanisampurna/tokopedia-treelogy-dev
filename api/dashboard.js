@@ -2828,6 +2828,20 @@ export default async function handler(req, res) {
       const shelfTurn = shortagesInTurn(shelf, data.orders, assignments);
       if (isPacker) data = { ...data, orders: assignedTo(assignments, data.orders, user.email) };
       /*
+       * The packer chips' counts, over the whole worklist before the chip's own filter:
+       * counted after it, every chip but the one pressed read 0 or nothing at all.
+       */
+      const packerCounts = { all: 0, none: 0, by: {} };
+      if (!isPacker) {
+        for (const o of data.orders) {
+          if (labelReadiness(o, printed, arrangedNow).state !== 'needsPrint') continue;
+          packerCounts.all += 1;
+          const to = assignmentFor(assignments, o)?.to;
+          if (!to) packerCounts.none += 1;
+          else packerCounts.by[to] = (packerCounts.by[to] ?? 0) + 1;
+        }
+      }
+      /*
        * The packer's "Sudah dicetak" tab: their parcels whose label the printer actually
        * produced (a phone print is on the ledger only once the phone confirmed it), over
        * the last week. A parcel the courier took has left the worklist, so it is read
@@ -2879,7 +2893,7 @@ export default async function handler(req, res) {
         showReprints, reprintFilter, now: Math.floor(Date.now() / 1000),
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
-        bench, assignments, packers, packerFilter, isPacker, packerDone, images: isPacker ? await imagesByKey() : {},
+        bench, assignments, packers, packerFilter, packerCounts, isPacker, packerDone, images: isPacker ? await imagesByKey() : {},
         shelf, shelfTurn,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));

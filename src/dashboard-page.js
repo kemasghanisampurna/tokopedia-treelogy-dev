@@ -7742,7 +7742,7 @@ export function stockCheckKit() {
   return { dialog, style, script };
 }
 
-export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, packerDone = [], images = {}, shelf = null, shelfTurn = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
+export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', packerCounts = null, isPacker = false, packerDone = [], images = {}, shelf = null, shelfTurn = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
   // took are a deliberate detour, not clutter in the daily view.
@@ -7903,10 +7903,19 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   const board = !isPacker && packers.length ? labelBoard({ packers }) : null;
   // Before a bulk hand-out or print: enough on the shelf for what is ticked?
   const stock = !isPacker && !showReprints && shelf ? stockCheckKit() : null;
+  // Counted over the whole worklist (packerCounts, before any chip filtered it), so every
+  // chip keeps its number whichever one is pressed. Without it - the page on its own -
+  // the rows at hand are all there is to count.
+  const waiting = assessed.filter((r) => r.readiness.state === 'needsPrint');
+  const tally = packerCounts ?? {
+    all: waiting.length,
+    none: waiting.filter((r) => !r.assigned).length,
+    by: waiting.reduce((m, r) => (r.assigned ? { ...m, [r.assigned.to]: (m[r.assigned.to] ?? 0) + 1 } : m), {}),
+  };
   const packerChips = !isPacker && packers.length ? `<div class="filters lb-packers">
-          <a class="chip${packerFilter ? '' : ' is-on'}" href="?view=labels">Semua</a>
-          <a class="chip${packerFilter === 'none' ? ' is-on' : ''}" href="?view=labels&amp;packer=none">Belum ditugaskan &middot; ${assessed.filter((r) => !r.assigned && r.readiness.state === 'needsPrint').length}</a>
-          ${packers.map((pk) => `<a class="chip${packerFilter === pk.email ? ' is-on' : ''}" href="?view=labels&amp;packer=${escape(encodeURIComponent(pk.email))}">${escape(pk.name)}${packerFilter ? '' : ` &middot; ${assessed.filter((r) => r.assigned?.to === pk.email && r.readiness.state === 'needsPrint').length}`}</a>`).join('')}
+          <a class="chip${packerFilter ? '' : ' is-on'}" href="?view=labels">Semua &middot; ${tally.all}</a>
+          <a class="chip${packerFilter === 'none' ? ' is-on' : ''}" href="?view=labels&amp;packer=none">Belum ditugaskan &middot; ${tally.none}</a>
+          ${packers.map((pk) => `<a class="chip${packerFilter === pk.email ? ' is-on' : ''}" href="?view=labels&amp;packer=${escape(encodeURIComponent(pk.email))}">${escape(pk.name)} &middot; ${tally.by[pk.email] ?? 0}</a>`).join('')}
           <span class="grow"></span>${board.button}
         </div>` : '';
 
