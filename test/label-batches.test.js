@@ -88,7 +88,7 @@ test('the reprint page shows a heading per run, naming the person and the count'
     people: { 'vanya@treelogy.com': 'Vanya', 'kemas@treelogy.com': 'Kemas Ghani' },
   });
 
-  assert.match(html, /<tr class="grp" data-grp="b2"><td colspan="5">/);
+  assert.match(html, /<tr class="grp" data-grp="b2"><td colspan="6">/);
   // The heading's own checkbox: reprinting one whole run is the reason this list exists.
   assert.match(html, /<input type="checkbox" class="grp__pick" data-batch="b1" checked/);
   assert.match(html, /class="pick"[^>]*value="shopee:260918AAA"[^>]*data-batch="b1"/);

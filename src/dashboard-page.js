@@ -987,7 +987,11 @@ ${DIRECT_PRINT_CSS}
 .pq__close{min-height:48px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); font:inherit; font-weight:600; cursor:pointer}
 .pq__close:disabled{opacity:.45; cursor:default}
 .lb-short{display:inline-flex; align-items:flex-start; gap:.3rem; white-space:normal; font-size:.85rem} .lb-short .ico{width:15px; height:15px; margin-top:.15rem}
-.lb-to{display:inline-flex; align-items:center; gap:.25rem; color:var(--accent)} .lb-to .ico{width:.9rem; height:.9rem}
+.lb-to{display:inline-flex; align-items:center; gap:.45rem; padding:.18rem .55rem .18rem .2rem; border-radius:999px; font-size:.84rem; font-weight:500;
+  color:var(--fg); background:color-mix(in srgb,var(--accent) 12%,transparent); border:1px solid color-mix(in srgb,var(--accent) 26%,transparent)}
+.lb-to__a{width:1.4rem; height:1.4rem; border-radius:50%; display:grid; place-items:center; font-size:.7rem; font-weight:700;
+  color:var(--accent); background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.lb-none{font-size:.82rem; color:var(--dim)}
 .lb-free{display:inline-grid; place-items:center; width:1.75rem; height:1.75rem; margin:-.4rem -.35rem -.4rem .1rem; padding:0; border:0; border-radius:999px; background:none; color:var(--muted); cursor:pointer; transition:background-color .15s, color .15s} .lb-free:hover, .lb-free:focus-visible{background:color-mix(in srgb, var(--stop, #e5484d) 14%, transparent); color:var(--stop, #e5484d); outline:none} .lb-free .ico{width:.8rem; height:.8rem}
 .lb-assign{display:inline-flex; align-items:center; gap:.4rem} .lb-assign .dr__in{min-width:9rem}
 .lb-packers{gap:.4rem}
@@ -6242,11 +6246,13 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
         <span class="mono nowrap">${escape(o.id)}</span>
         <span class="pick__s">${escape(dateTime(o.createdAt, o.channel))} &middot; ${escape(o.carrier) || 'kurir belum ada'}</span>
       </td>
-      <td class="nowrap">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}${
-        assigned ? `<span class="pick__s lb-to" title="Ditugaskan ke ${escape(assigned.name || assigned.to)}">${svg('user')}${escape(assigned.name || assigned.to)}${
+      <td class="nowrap">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</td>
+      <td class="nowrap">${
+        // Its own column: handed out or not, and to whom, read down the page at a glance.
+        assigned ? `<span class="lb-to" title="Ditugaskan ke ${escape(assigned.name || assigned.to)}"><span class="lb-to__a" aria-hidden="true">${escape(String(assigned.name || assigned.to).trim().charAt(0).toUpperCase())}</span>${escape(assigned.name || assigned.to)}${
           // Taken back from this one row, without ticking anything: handing the wrong
           // parcel out is fixed where it is seen.
-          viewer && viewer.role !== 'packer' && can(viewer, 'assign') ? `<button class="lb-free" type="submit" formaction="/api/dashboard" formtarget="_self" formnovalidate name="unassign" value="${escape(o.channel)}:${escape(o.id)}" data-ask="${escape(o.id)} dari ${escape(assigned.name || assigned.to)}" title="Lepas dari ${escape(assigned.name || assigned.to)}" aria-label="Lepas ${escape(o.id)} dari ${escape(assigned.name || assigned.to)}">${svg('close')}</button>` : ''}</span>` : ''}</td>
+          viewer && viewer.role !== 'packer' && can(viewer, 'assign') ? `<button class="lb-free" type="submit" formaction="/api/dashboard" formtarget="_self" formnovalidate name="unassign" value="${escape(o.channel)}:${escape(o.id)}" data-ask="${escape(o.id)} dari ${escape(assigned.name || assigned.to)}" title="Lepas dari ${escape(assigned.name || assigned.to)}" aria-label="Lepas ${escape(o.id)} dari ${escape(assigned.name || assigned.to)}">${svg('close')}</button>` : ''}</span>` : '<span class="lb-none">Belum</span>'}</td>
       <td class="nowrap"><span class="${readiness.changed ? 'stop' : (READY_TONE[readiness.state] ?? 'dim')}">${escape(readiness.note)}</span>${
         // What moved is a hover away, so the row stays one short line.
         readiness.what?.length ? ` <span class="lb-tip" tabindex="0" role="img" aria-label="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}" data-tip="${escape(`Yang berubah: ${readiness.what.join(', ')}`)}">${svg('info')}</span>` : ''}${
@@ -7920,7 +7926,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         const who = batch.by ? escape(personName(batch.by)) : 'pencetak tidak tercatat';
         // A checkbox on the heading, because reprinting one whole run is the reason this
         // list is open: "the batch Vanya printed at eleven, print it again".
-        return `<tr class="grp" data-grp="${escape(batch.key)}"${out ? ' data-out="1" hidden' : ''}><td colspan="5">
+        return `<tr class="grp" data-grp="${escape(batch.key)}"${out ? ' data-out="1" hidden' : ''}><td colspan="6">
           <label class="grp__sel">
             <input type="checkbox" class="grp__pick" data-batch="${escape(batch.key)}" checked
               aria-label="Pilih batch ${escape(when)} oleh ${who}">
@@ -8104,7 +8110,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
             <thead><tr>
               <th><input type="checkbox" id="head" checked aria-label="Pilih semua"></th>
               ${showReprints ? '<th>Kanal</th><th>Pesanan</th>' : `<th>${tableFilter('ch', 'Kanal', 'Semua kanal', candidates.map(({ order }) => channelLabel(order)))}</th>
-              <th><span class="lbf__row">Pesanan ${tableFilter('carrier', 'Kurir', 'Semua kurir', candidates.map(({ order }) => carrierOf(order)), 'Belum ada kurir', '')}${tableFilter('products', 'Produk', 'Semua produk', candidates.flatMap(({ order }) => productsOf(order)), '', '')}</span></th>`}<th>Pembeli</th><th>Label</th>
+              <th><span class="lbf__row">Pesanan ${tableFilter('carrier', 'Kurir', 'Semua kurir', candidates.map(({ order }) => carrierOf(order)), 'Belum ada kurir', '')}${tableFilter('products', 'Produk', 'Semua produk', candidates.flatMap(({ order }) => productsOf(order)), '', '')}</span></th>`}<th>Pembeli</th><th>Ditugaskan</th><th>Label</th>
             </tr></thead>
             <tbody id="lb-rows">${rows}</tbody>
             <tbody id="lbq-more"></tbody>
@@ -8333,7 +8339,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
           if (found.length) {
             var title = document.createElement('tr');
             title.className = 'grp';
-            title.innerHTML = '<td colspan="5"><span class="grp__t">Di semua pesanan</span>'
+            title.innerHTML = '<td colspan="6"><span class="grp__t">Di semua pesanan</span>'
               + '<span class="grp__n grp__n--batch">' + found.length + ' pesanan</span></td>';
             more.appendChild(title);
             found.forEach(function (row) { more.appendChild(row); });

@@ -317,3 +317,10 @@ test('the label size is not asked any more: every print goes out at the default,
   assert.doesNotMatch(html, /<select[^>]*name="size"/);
   assert.match(html, /<input type="hidden" name="size" value="a6">/);
 });
+
+test('the label table has its own column for who a parcel was handed to', () => {
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W'), order('#2', 'S')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer] });
+  assert.match(html, /<th>Pembeli<\/th><th>Ditugaskan<\/th><th>Label<\/th>/);
+  assert.match(html, /<td class="nowrap">W<\/td>\s*<td class="nowrap"><span class="lb-to" title="Ditugaskan ke Budi"><span class="lb-to__a" aria-hidden="true">B<\/span>Budi<button class="lb-free"/);
+  assert.match(html, /<td class="nowrap">S<\/td>\s*<td class="nowrap"><span class="lb-none">Belum<\/span><\/td>/);
+});
