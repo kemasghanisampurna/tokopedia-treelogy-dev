@@ -6823,6 +6823,459 @@ const PACKER_SCRIPT = `
 })();
 `;
 
+/**
+ * The hand-out board: a dialog over the label page that shows every parcel handed to a
+ * packer, still to print on the left (oldest hand-out first) and printed on the right
+ * (newest first), refreshed every few seconds while it is open.
+ *
+ * When a packer's printer produces a label, its card is carried across from one column
+ * to the other rather than vanishing and reappearing: the eye follows one parcel instead
+ * of rereading two lists. The move borrows the house film vocabulary - a long-tailed
+ * expo-out arrival with a slight blur at its fastest point, a landing ring, everything
+ * else in the column making room with a short FLIP. With reduced motion asked for, the
+ * cards simply change place.
+ */
+export function labelBoard({ packers = [] } = {}) {
+  const chips = packers.length > 1
+    ? `<div class="lbw__chips" role="group" aria-label="Saring per packer">
+        <button class="chip is-on" type="button" data-pk="">Semua</button>
+        ${packers.map((pk) => `<button class="chip" type="button" data-pk="${escape(pk.email)}">${escape(pk.name)}</button>`).join('')}
+      </div>`
+    : '';
+  const button = `<button class="chip lbw-open" type="button" id="lbw-open" aria-haspopup="dialog">
+          <span class="lbw-open__dot" aria-hidden="true"></span>Papan penugasan</button>`;
+  const dialog = `
+    <dialog class="lbw" id="lbw" aria-labelledby="lbw-title">
+      <div class="lbw__fly" aria-hidden="true"></div>
+      <header class="lbw__head">
+        <div class="lbw__ttl">
+          <h2 class="lbw__h" id="lbw-title">Papan penugasan</h2>
+          <p class="lbw__sub"><span class="lbw__live" data-state="wait" aria-hidden="true"></span><span id="lbw-status">Menyambung&hellip;</span></p>
+        </div>
+        <button class="lbw__x" type="button" id="lbw-x" aria-label="Tutup papan penugasan">${svg('x')}</button>
+      </header>
+      ${chips}
+      <div class="lbw__seg" role="tablist" aria-label="Status label">
+        <button class="lbw__tab is-on" type="button" role="tab" aria-selected="true" data-tab="todo">Belum dicetak <b class="lbw__n" data-n="todo">0</b></button>
+        <button class="lbw__tab" type="button" role="tab" aria-selected="false" data-tab="done">Sudah dicetak <b class="lbw__n" data-n="done">0</b></button>
+      </div>
+      <div class="lbw__cols" data-tab="todo">
+        <section class="lbw__col lbw__col--todo" aria-labelledby="lbw-todo-h">
+          <div class="lbw__ch">
+            <h3 class="lbw__cht" id="lbw-todo-h"><span class="lbw__pip" aria-hidden="true"></span>Belum dicetak <b class="lbw__n" id="lbw-todo-n">0</b></h3>
+            <span class="lbw__chs">Paling lama ditugaskan di atas</span>
+          </div>
+          <ol class="lbw__list" id="lbw-todo"></ol>
+          <p class="lbw__empty" id="lbw-todo-e" hidden>${svg('check2')}<span>Tidak ada tugas yang menunggu dicetak.</span></p>
+        </section>
+        <section class="lbw__col lbw__col--done" aria-labelledby="lbw-done-h">
+          <div class="lbw__ch">
+            <h3 class="lbw__cht" id="lbw-done-h"><span class="lbw__pip" aria-hidden="true"></span>Sudah dicetak <b class="lbw__n" id="lbw-done-n">0</b></h3>
+            <span class="lbw__chs">Terbaru di atas &middot; 24 jam</span>
+          </div>
+          <ol class="lbw__list" id="lbw-done"></ol>
+          <p class="lbw__empty" id="lbw-done-e" hidden>${svg('printer')}<span>Belum ada label tugas yang dicetak dalam 24 jam.</span></p>
+        </section>
+      </div>
+      <p class="vh" id="lbw-say" aria-live="polite"></p>
+    </dialog>`;
+
+  const style = `
+.lbw-open{display:inline-flex; align-items:center; gap:.5rem}
+.lbw-open__dot{width:7px; height:7px; border-radius:50%; background:var(--good); box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 55%,transparent);
+  animation:lbwPulse 2.4s var(--ease-out) infinite}
+.vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+.lbw{width:min(66rem,calc(100vw - 2rem)); height:min(46rem,calc(100dvh - 2rem)); max-height:none; padding:0; overflow:hidden;
+  border:1px solid var(--glass-line); border-radius:24px; color:var(--fg);
+  background:color-mix(in srgb,var(--panel) 92%,transparent);
+  backdrop-filter:blur(24px) saturate(1.4); -webkit-backdrop-filter:blur(24px) saturate(1.4);
+  box-shadow:0 40px 100px -30px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.07)}
+.lbw[open]{display:flex; flex-direction:column; animation:pop 320ms var(--ease-out) both}
+.lbw::backdrop{background:color-mix(in srgb,#0A0F0D 62%,transparent); backdrop-filter:blur(6px)}
+.lbw[open]::backdrop{animation:veil 240ms var(--ease-out) both}
+.lbw__fly{position:absolute; inset:0; pointer-events:none; z-index:5; overflow:hidden; border-radius:inherit}
+.lbw__head{display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; padding:1.4rem 1.5rem .9rem}
+.lbw__h{margin:0; font-size:1.25rem; font-weight:600; letter-spacing:-.02em}
+.lbw__sub{margin:.35rem 0 0; display:flex; align-items:center; gap:.5rem; font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums}
+.lbw__live{width:8px; height:8px; border-radius:50%; background:var(--dim); flex:none}
+.lbw__live[data-state="on"]{background:var(--good); animation:lbwPulse 2.4s var(--ease-out) infinite}
+.lbw__live[data-state="off"]{background:var(--warn)}
+.lbw__x{width:44px; height:44px; flex:none; display:grid; place-items:center; border-radius:12px; cursor:pointer;
+  border:1px solid var(--glass-line); background:var(--glass); color:var(--muted); transition:color 160ms, background 160ms}
+.lbw__x:hover{color:var(--fg); background:var(--glass-2)}
+.lbw__x .ico{width:18px; height:18px}
+.lbw__x:focus-visible,.lbw__chips .chip:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.lbw__chips{display:flex; flex-wrap:wrap; gap:.45rem; padding:0 1.5rem .9rem}
+.lbw__cols{flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:1rem; padding:0 1.5rem 1.5rem}
+.lbw__col{--c:var(--act); min-height:0; display:flex; flex-direction:column; border-radius:18px;
+  border:1px solid var(--glass-line); background:color-mix(in srgb,var(--panel-2) 55%,transparent)}
+.lbw__col--done{--c:var(--good)}
+.lbw__ch{display:flex; align-items:baseline; justify-content:space-between; gap:.6rem; flex-wrap:wrap;
+  padding:.95rem 1rem .7rem; border-bottom:1px solid var(--glass-line)}
+.lbw__cht{margin:0; display:flex; align-items:center; gap:.5rem; font-size:.78rem; font-weight:600; letter-spacing:.07em; text-transform:uppercase}
+.lbw__pip{width:8px; height:8px; border-radius:3px; background:var(--c)}
+.lbw__n{font-family:"Fira Code",ui-monospace,monospace; font-size:.74rem; font-weight:600; letter-spacing:0; padding:.12rem .45rem; border-radius:999px;
+  color:var(--c); background:color-mix(in srgb,var(--c) 14%,transparent); display:inline-block}
+.lbw__chs{font-size:.72rem; color:var(--dim)}
+.lbw__list{list-style:none; margin:0; padding:.6rem; overflow-y:auto; flex:1; min-height:0; display:flex; flex-direction:column; gap:.45rem;
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent}
+.lbw__list:empty{flex:0; padding:0}
+.lbw__empty[hidden]{display:none}
+.lbw__empty{margin:auto; padding:2rem 1rem; display:flex; flex-direction:column; align-items:center; gap:.6rem; text-align:center; font-size:.84rem; color:var(--dim)}
+.lbw__empty .ico{width:26px; height:26px; color:var(--c); opacity:.8}
+.lbw__card{--pk:var(--brand); position:relative; display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:.75rem;
+  padding:.7rem .8rem; border-radius:14px; border:1px solid var(--glass-line); background:var(--panel);
+  box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 6px 16px -12px rgba(0,0,0,.5)}
+.lbw__ava{width:34px; height:34px; border-radius:11px; display:grid; place-items:center; font-size:.82rem; font-weight:700;
+  color:var(--pk); background:color-mix(in srgb,var(--pk) 16%,transparent); border:1px solid color-mix(in srgb,var(--pk) 30%,transparent)}
+.lbw__main{min-width:0; display:flex; flex-direction:column; gap:.2rem}
+.lbw__row{display:flex; align-items:center; gap:.5rem; min-width:0}
+.lbw__id{font-family:"Fira Code",ui-monospace,monospace; font-size:.84rem; font-weight:600; white-space:nowrap}
+.lbw__card .tag{font-size:.64rem; padding:.1rem .4rem}
+.lbw__buyer{font-size:.8rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lbw__meta{display:flex; flex-direction:column; align-items:flex-end; gap:.2rem; text-align:right; min-width:0}
+.lbw__who{font-size:.82rem; font-weight:600; white-space:nowrap}
+.lbw__when{display:flex; align-items:center; gap:.3rem; font-size:.72rem; color:var(--dim); white-space:nowrap; font-variant-numeric:tabular-nums}
+.lbw__when[data-age="warn"]{color:var(--warn)}
+.lbw__when[data-age="bad"]{color:var(--bad)}
+.lbw__when .ico{width:13px; height:13px}
+.lbw__card.is-done .lbw__when{color:var(--good)}
+.lbw__card.is-landed{animation:lbwLand 1.4s var(--ease-out)}
+.lbw__ghost{position:absolute; margin:0; will-change:transform,filter,opacity; z-index:1;
+  box-shadow:0 24px 50px -18px rgba(0,0,0,.7), 0 0 0 1px color-mix(in srgb,var(--good) 35%,transparent)}
+.lbw__n.is-bump{animation:lbwBump 300ms var(--ease-out)}
+@keyframes lbwPulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 55%,transparent)}70%,100%{box-shadow:0 0 0 7px transparent}}
+@keyframes lbwLand{0%{box-shadow:0 0 0 2px color-mix(in srgb,var(--good) 70%,transparent), 0 0 24px -4px color-mix(in srgb,var(--good) 55%,transparent);
+  background:color-mix(in srgb,var(--good) 12%,var(--panel))}100%{box-shadow:0 0 0 0 transparent; background:var(--panel)}}
+@keyframes lbwBump{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
+.lbw__seg{display:none}
+/* Phones: one list at a time, full height, switched by a segmented control. A label
+   printed while the waiting tab is open flies into the other tab instead of across. */
+@media (max-width:760px){
+  .lbw{width:100vw; height:100dvh; max-width:none; max-height:none; margin:0; border-radius:0; border:0}
+  .lbw[open]{animation:lbwSheet 340ms cubic-bezier(.16,1,.3,1) both}
+  .lbw__head{padding:calc(.9rem + env(safe-area-inset-top)) 1rem .6rem}
+  .lbw__h{font-size:1.1rem}
+  .lbw__chips{padding:0 1rem .7rem; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch}
+  .lbw__chips::-webkit-scrollbar{display:none}
+  .lbw__chips .chip{min-height:40px; flex:none}
+  .lbw__seg{display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:0 1rem .7rem; padding:4px; border-radius:14px;
+    background:color-mix(in srgb,var(--panel-2) 70%,transparent); border:1px solid var(--glass-line)}
+  .lbw__tab{--c:var(--act); min-height:44px; display:flex; align-items:center; justify-content:center; gap:.45rem; cursor:pointer;
+    font:inherit; font-size:.84rem; font-weight:600; color:var(--muted); background:transparent; border:0; border-radius:10px;
+    transition:color 180ms, background 180ms}
+  .lbw__tab[data-tab="done"]{--c:var(--good)}
+  .lbw__tab.is-on{color:var(--fg); background:var(--panel); box-shadow:0 4px 14px -8px rgba(0,0,0,.55), inset 0 0 0 1px var(--glass-line)}
+  .lbw__tab:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
+  .lbw__cols{grid-template-columns:1fr; padding:0 1rem calc(1rem + env(safe-area-inset-bottom)); gap:0}
+  .lbw__cols[data-tab="todo"] .lbw__col--done,.lbw__cols[data-tab="done"] .lbw__col--todo{display:none}
+  .lbw__ch{padding:.65rem .9rem .55rem}
+  .lbw__cht{display:none}
+  .lbw__list{padding:.5rem}
+  .lbw__card{grid-template-columns:32px minmax(0,1fr) auto; gap:.65rem; padding:.7rem}
+  .lbw__ava{width:32px; height:32px; border-radius:10px}
+  .lbw__clk{display:none}
+}
+@keyframes lbwSheet{from{transform:translateY(24px); opacity:0}to{transform:none; opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .lbw-open__dot,.lbw__live[data-state="on"]{animation:none}
+  .lbw[open],.lbw[open]::backdrop,.lbw__card.is-landed,.lbw__n.is-bump{animation:none}
+  .lbw__tab{transition:none}
+}`;
+
+  const script = `
+(function () {
+  var dialog = document.getElementById('lbw');
+  var opener = document.getElementById('lbw-open');
+  if (!dialog || !opener || !dialog.showModal) return;
+  var fly = dialog.querySelector('.lbw__fly');
+  var lists = { todo: document.getElementById('lbw-todo'), done: document.getElementById('lbw-done') };
+  var counts = { todo: document.getElementById('lbw-todo-n'), done: document.getElementById('lbw-done-n') };
+  var tabCounts = { todo: dialog.querySelector('[data-n="todo"]'), done: dialog.querySelector('[data-n="done"]') };
+  var cols = dialog.querySelector('.lbw__cols');
+  var tabs = dialog.querySelectorAll('.lbw__tab');
+  var empties = { todo: document.getElementById('lbw-todo-e'), done: document.getElementById('lbw-done-e') };
+  var statusText = document.getElementById('lbw-status');
+  var live = dialog.querySelector('.lbw__live');
+  var say = document.getElementById('lbw-say');
+  var ZONE = ${JSON.stringify(zoneName())};
+  var CHECK = ${JSON.stringify(svg('check'))};
+  var HUES = ['--brand', '--info', '--act', '--done', '--accent', '--warn'];
+  var EXPO = 'cubic-bezier(.16,1,.3,1)';
+  var POLL_MS = 3000;
+
+  var nodes = {};      // key -> card element
+  var side = {};       // key -> 'todo' | 'done', as last drawn
+  var filter = '';
+  var last = null;     // the last snapshot, so a filter change redraws without waiting
+  var timer = null;
+  var busy = false;
+  var fresh = true;    // the first draw after opening or filtering: cards fade in, nothing flies
+
+  var reduced = function () {
+    return !Element.prototype.animate || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  };
+  function hue(email) {
+    var h = 0;
+    for (var i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) >>> 0;
+    return 'var(' + HUES[h % HUES.length] + ')';
+  }
+  function clock(sec) {
+    return new Date(sec * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: ZONE });
+  }
+  function ago(sec, now) {
+    var d = Math.max(0, now - sec);
+    if (d < 60) return 'baru saja';
+    if (d < 3600) return Math.floor(d / 60) + ' mnt';
+    if (d < 86400) return Math.floor(d / 3600) + ' j ' + Math.floor((d % 3600) / 60) + ' mnt';
+    return Math.floor(d / 86400) + ' hr';
+  }
+
+  function make() {
+    var li = document.createElement('li');
+    li.className = 'lbw__card';
+    li.innerHTML = '<span class="lbw__ava" aria-hidden="true"></span>'
+      + '<span class="lbw__main"><span class="lbw__row"><b class="lbw__id"></b><span class="tag"></span></span><span class="lbw__buyer"></span></span>'
+      + '<span class="lbw__meta"><span class="lbw__who"></span><span class="lbw__when"></span></span>';
+    return li;
+  }
+  // Text only, through textContent: a buyer's name is typed by a stranger.
+  function fill(li, item, where, now) {
+    li.dataset.key = item.key;
+    li.style.setProperty('--pk', hue(item.to || ''));
+    li.classList.toggle('is-done', where === 'done');
+    li.querySelector('.lbw__ava').textContent = (item.packer || '?').trim().charAt(0).toUpperCase();
+    li.querySelector('.lbw__id').textContent = (item.channel === 'shopify' && String(item.id).charAt(0) !== '#' ? '#' : '') + item.id;
+    var tag = li.querySelector('.tag');
+    tag.textContent = item.tag.label;
+    tag.style.setProperty('--accent', item.tag.accent);
+    li.querySelector('.lbw__buyer').textContent = item.buyer || 'tanpa nama';
+    li.querySelector('.lbw__who').textContent = item.packer || '-';
+    var when = li.querySelector('.lbw__when');
+    if (where === 'done') {
+      when.innerHTML = CHECK;
+      when.appendChild(document.createTextNode((item.marked ? 'ditandai ' : 'dicetak ') + clock(item.printedAt)));
+      when.removeAttribute('data-age');
+      li.title = (item.marked ? 'Ditandai sudah dicetak' : 'Dicetak') + (item.printedBy ? ' oleh ' + item.printedBy : '')
+        + ' · ditugaskan ' + clock(item.assignedAt) + (item.by ? ' oleh ' + item.by : '');
+    } else {
+      var waited = now - item.assignedAt;
+      when.textContent = '';
+      var clk = document.createElement('span');
+      clk.className = 'lbw__clk';
+      clk.textContent = clock(item.assignedAt) + ' · ';
+      when.appendChild(clk);
+      when.appendChild(document.createTextNode(ago(item.assignedAt, now) + (item.by ? ' · oleh ' + item.by : '')));
+      if (waited >= 7200) when.setAttribute('data-age', 'bad');
+      else if (waited >= 1800) when.setAttribute('data-age', 'warn');
+      else when.removeAttribute('data-age');
+      li.title = 'Ditugaskan ke ' + (item.packer || '-') + ' pukul ' + clock(item.assignedAt) + (item.by ? ' oleh ' + item.by : '');
+    }
+  }
+
+  function bump(el, value) {
+    if (el.textContent === String(value)) return;
+    el.textContent = String(value);
+    if (reduced()) return;
+    el.classList.remove('is-bump'); void el.offsetWidth; el.classList.add('is-bump');
+  }
+
+  // Where a card sits on the dialog, clamped to its column's visible window so a card
+  // landing below the fold flies to the column's edge rather than off the dialog.
+  var shown = function (el) { return !!(el && el.getClientRects().length); };
+  function boxOf(el, list) {
+    var r = el.getBoundingClientRect();
+    var d = dialog.getBoundingClientRect();
+    var top = r.top;
+    if (list) {
+      var lr = list.getBoundingClientRect();
+      top = Math.min(Math.max(top, lr.top), lr.bottom - r.height);
+    }
+    return { left: r.left - d.left, top: top - d.top, width: r.width, height: r.height };
+  }
+
+  // The carry: one parcel from "Belum dicetak" to "Sudah dicetak".
+  function carry(ghost, from, li, delay) {
+    // On a phone with the waiting tab open the printed list is hidden: the card flies
+    // into its tab and shrinks away there, and the tab's count is what changes.
+    var intoTab = !shown(li);
+    var tab = dialog.querySelector('.lbw__tab[data-tab="done"]');
+    var to = intoTab && shown(tab) ? (function () {
+      var t = boxOf(tab);
+      var w = from.width * 0.32;
+      var h = from.height * 0.32;
+      return { left: t.left + t.width / 2 - w / 2, top: t.top + t.height / 2 - h / 2, width: w, height: h };
+    })() : boxOf(li, lists.done);
+    ghost.classList.add('lbw__ghost');
+    ghost.style.left = from.left + 'px';
+    ghost.style.top = from.top + 'px';
+    ghost.style.width = from.width + 'px';
+    ghost.style.height = from.height + 'px';
+    fly.appendChild(ghost);
+    li.style.opacity = '0';
+    var dx = to.left - from.left;
+    var dy = to.top - from.top;
+    var sx = to.width / from.width;
+    ghost.style.transformOrigin = '0 0';
+    var lift = Math.min(28, 10 + Math.abs(dx) * 0.03);
+    var move = ghost.animate([
+      { transform: 'translate(0,0) scale(1)', filter: 'blur(0px)', opacity: 1 },
+      { offset: 0.38, transform: 'translate(' + dx * 0.5 + 'px,' + (dy * 0.5 - lift) + 'px) scale(' + (1.04 * sx) + ')', filter: 'blur(1.6px)', opacity: 1 },
+      { offset: 0.82, transform: 'translate(' + dx + 'px,' + dy + 'px) scale(' + sx + ')', filter: 'blur(0px)', opacity: 1 },
+      { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(' + sx + ')', filter: 'blur(0px)', opacity: 0 }
+    ], { duration: 760, delay: delay, easing: EXPO, fill: 'both' });
+    // The real card fades in under the ghost as it settles, so the swap from the pending
+    // look to the printed one reads as the card changing, not two cards.
+    if (!intoTab) li.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: delay + 520, easing: 'ease-out', fill: 'backwards' });
+    var done = function () {
+      ghost.remove();
+      if (intoTab) { li.style.opacity = ''; return; }
+      li.style.opacity = '';
+      li.classList.remove('is-landed'); void li.offsetWidth; li.classList.add('is-landed');
+      setTimeout(function () { li.classList.remove('is-landed'); }, 1500);
+    };
+    move.finished ? move.finished.then(done, done) : (move.onfinish = done);
+  }
+
+  function leave(li, from) {
+    if (!from || !from.width) return;
+    var ghost = li.cloneNode(true);
+    ghost.classList.add('lbw__ghost');
+    ghost.style.cssText += ';left:' + from.left + 'px;top:' + from.top + 'px;width:' + from.width + 'px;height:' + from.height + 'px;box-shadow:none';
+    fly.appendChild(ghost);
+    var a = ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px) scale(.97)' }], { duration: 200, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' });
+    var gone = function () { ghost.remove(); };
+    a.finished ? a.finished.then(gone, gone) : (a.onfinish = gone);
+  }
+
+  function draw(data) {
+    last = data;
+    var now = data.at;
+    var match = function (it) { return !filter || it.to === filter; };
+    var want = { todo: data.pending.filter(match), done: data.printed.filter(match) };
+    var still = !reduced();
+    var animate = still && !fresh;
+
+    // FIRST: where everything is before the lists change.
+    var before = {};
+    var ghosts = {};
+    Object.keys(nodes).forEach(function (key) { before[key] = boxOf(nodes[key]); });
+    var moving = [];
+    var from = {};
+    want.done.forEach(function (it) {
+      if (side[it.key] === 'todo' && nodes[it.key]) {
+        moving.push(it);
+        from[it.key] = boxOf(nodes[it.key], lists.todo);
+        // Cloned now, while it still wears the pending look.
+        // A card that was not on screen (the other tab) has nowhere to fly from.
+        if (animate && shown(nodes[it.key])) ghosts[it.key] = nodes[it.key].cloneNode(true);
+      }
+    });
+
+    // The lists, rebuilt by key so a card that stays is the same element.
+    var next = {};
+    ['todo', 'done'].forEach(function (s) {
+      want[s].forEach(function (it) {
+        var li = nodes[it.key] || make();
+        fill(li, it, s, now);
+        lists[s].appendChild(li);
+        next[it.key] = s;
+        nodes[it.key] = li;
+      });
+      empties[s].hidden = want[s].length > 0;
+      bump(counts[s], want[s].length);
+      bump(tabCounts[s], want[s].length);
+    });
+    Object.keys(nodes).forEach(function (key) {
+      if (next[key]) return;
+      if (animate) leave(nodes[key], before[key]);
+      nodes[key].remove();
+      delete nodes[key];
+    });
+
+    // LAST, INVERT, PLAY.
+    var entering = 0;
+    Object.keys(next).forEach(function (key) {
+      var li = nodes[key];
+      if (!before[key]) {
+        if (!still) return;
+        li.animate([{ opacity: 0, transform: 'translateY(10px) scale(.98)' }, { opacity: 1, transform: 'none' }],
+          { duration: 420, delay: Math.min(entering++, 8) * 45, easing: EXPO, fill: 'backwards' });
+        return;
+      }
+      if (!animate) return;
+      if (side[key] === 'todo' && next[key] === 'done') return; // carried below
+      if (!before[key].width || !shown(li)) return;
+      var after = boxOf(li);
+      var dy = before[key].top - after.top;
+      if (Math.abs(dy) < 1) return;
+      li.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: 380, easing: EXPO });
+    });
+    moving.forEach(function (it, i) {
+      if (animate && ghosts[it.key]) carry(ghosts[it.key], from[it.key], nodes[it.key], i * 90);
+      else if (still) { var li = nodes[it.key]; li.classList.add('is-landed'); setTimeout(function () { li.classList.remove('is-landed'); }, 1500); }
+    });
+    if (moving.length && !fresh) {
+      say.textContent = moving.map(function (it) { return it.id + ' dicetak oleh ' + (it.packer || 'packer'); }).join('. ');
+    }
+    side = next;
+    fresh = false;
+  }
+
+  function status(ok, at) {
+    live.setAttribute('data-state', ok ? 'on' : 'off');
+    statusText.textContent = ok
+      ? 'Langsung · diperbarui ' + new Date(at * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: ZONE })
+      : 'Koneksi terputus · mencoba lagi';
+  }
+
+  function tick() {
+    clearTimeout(timer);
+    if (!dialog.open || document.hidden || busy) return;
+    busy = true;
+    fetch(location.pathname + '?view=labels&board=1', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(function (data) { status(true, data.at); draw(data); })
+      .catch(function () { status(false); })
+      .then(function () { busy = false; if (dialog.open) timer = setTimeout(tick, POLL_MS); });
+  }
+
+  opener.addEventListener('click', function () {
+    fresh = true;
+    dialog.showModal();
+    if (last) draw(last);
+    tick();
+  });
+  document.getElementById('lbw-x').addEventListener('click', function () { dialog.close(); });
+  dialog.addEventListener('click', function (e) { if (e.target === dialog) dialog.close(); });
+  dialog.addEventListener('close', function () { clearTimeout(timer); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && dialog.open) tick(); });
+  Array.prototype.forEach.call(tabs, function (tab) {
+    tab.addEventListener('click', function () {
+      cols.setAttribute('data-tab', tab.dataset.tab);
+      Array.prototype.forEach.call(tabs, function (t) {
+        var on = t === tab;
+        t.classList.toggle('is-on', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+    });
+  });
+  Array.prototype.forEach.call(dialog.querySelectorAll('.lbw__chips .chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      filter = chip.dataset.pk || '';
+      Array.prototype.forEach.call(dialog.querySelectorAll('.lbw__chips .chip'), function (c) {
+        var on = c === chip;
+        c.classList.toggle('is-on', on);
+        c.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      fresh = true;
+      if (last) draw(last);
+    });
+  });
+})();`;
+  return { button, dialog, style, script };
+}
+
 export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, packerDone = [], images = {}, shelf = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
@@ -6981,10 +7434,12 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
             </label>
             <button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self" name="action" value="label_assign">Tugaskan</button>
             <button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self" name="action" value="label_unassign">Lepas</button>` : '';
+  const board = !isPacker && packers.length ? labelBoard({ packers }) : null;
   const packerChips = !isPacker && packers.length ? `<div class="filters lb-packers">
           <a class="chip${packerFilter ? '' : ' is-on'}" href="?view=labels">Semua</a>
           <a class="chip${packerFilter === 'none' ? ' is-on' : ''}" href="?view=labels&amp;packer=none">Belum ditugaskan &middot; ${assessed.filter((r) => !r.assigned && r.readiness.state === 'needsPrint').length}</a>
           ${packers.map((pk) => `<a class="chip${packerFilter === pk.email ? ' is-on' : ''}" href="?view=labels&amp;packer=${escape(encodeURIComponent(pk.email))}">${escape(pk.name)}${packerFilter ? '' : ` &middot; ${assessed.filter((r) => r.assigned?.to === pk.email && r.readiness.state === 'needsPrint').length}`}</a>`).join('')}
+          <span class="grow"></span>${board.button}
         </div>` : '';
 
   const sizeOptions = Object.entries(sizes)
@@ -7082,7 +7537,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     csrf,
     title: 'Cetak Label',
     actions: logKit ? logKit.button : '',
-    style: logKit ? logKit.style : '',
+    style: `${logKit ? logKit.style : ''}${board ? board.style : ''}`,
     range, errors, shopeeShop, generatedAt,
     view: 'labels',
     hideRangeControls: true, scope: 'semua yang perlu dicetak',
@@ -7141,8 +7596,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
               : ''}
           </div>
           <input type="hidden" name="view" value="labels">
-        </form>${logKit ? logKit.dialog : ''}`,
-    script: `${logKit ? logKit.script : ''}${printScript}
+        </form>${logKit ? logKit.dialog : ''}${board ? board.dialog : ''}`,
+    script: `${logKit ? logKit.script : ''}${board ? board.script : ''}${printScript}
 (function () {
   var form = document.getElementById('lbform');
   var counter = document.getElementById('n');

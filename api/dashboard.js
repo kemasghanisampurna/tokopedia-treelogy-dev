@@ -33,6 +33,7 @@ import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
 import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo, splitPrintable, heldText } from '../src/label-assign.js';
+import { boardSnapshot, boardUnknown } from '../src/label-board.js';
 import { reserveFor, shelfPulse } from '../src/warehouse-reserve.js';
 import { shelfShortages, shortRefusal } from '../src/shelf-gate.js';
 import { labelReadiness } from '../src/labels.js';
@@ -362,6 +363,41 @@ export const ordersFor = (range) => cached(
  */
 const OUTSTANDING_VIEWS = new Set(['process', 'picklist', 'labels']);
 const outstandingOrders = () => cached('orders:outstanding', ordersTtl(), loadOutstanding, SWR);
+
+/*
+ * Buyers of handed-out parcels that have left the worklist (the courier took them), so
+ * the board's printed column can still name who the parcel is for. Filled from the
+ * worklist as it is read, and read back by id at most once per order.
+ */
+const boardBuyers = new Map();
+async function readLabelBoard() {
+  const [assignments, printed, arranged, open, roster] = await Promise.all([
+    loadAssignments().catch(() => ({ orders: {} })),
+    printedLabels().catch(() => ({})),
+    arrangedOrders().catch(() => ({})),
+    outstandingOrders().catch(() => ({ orders: [] })),
+    cached('users:roster', 30_000, () => listUsers().catch(() => [])),
+  ]);
+  const [holds, refunds] = await Promise.all([heldOrders().catch(() => ({})), loadRefunds().catch(() => null)]);
+  const outstanding = withHolds(refunds ? withoutRefunds(open, refunds) : open, holds).orders ?? [];
+  for (const o of outstanding) boardBuyers.set(`${o.channel}:${o.id}`, { buyer: o.buyer ?? null, source: o.source ?? null });
+  const now = Math.floor(Date.now() / 1000);
+  const known = Object.fromEntries(boardBuyers);
+  const missing = boardUnknown({ assignments, printed, outstanding, known, now }).slice(0, 60);
+  if (missing.length) {
+    const found = await ordersByIds(missing.map((k) => ({ channel: k.slice(0, k.indexOf(':')), id: k.slice(k.indexOf(':') + 1) }))).catch(() => []);
+    const byKey = new Map((Array.isArray(found) ? found : []).map((o) => [`${o.channel}:${o.id}`, o]));
+    // Remembered even when not found, so a parcel the database cannot answer for is not
+    // asked about again every three seconds.
+    for (const k of missing) {
+      const o = byKey.get(k);
+      boardBuyers.set(k, { buyer: o?.buyer ?? null, source: o?.source ?? null });
+      known[k] = boardBuyers.get(k);
+    }
+  }
+  const people = Object.fromEntries(roster.map((u) => [u.email, u.name || u.email]));
+  return boardSnapshot({ assignments, printed, outstanding, arranged, known, people, now });
+}
 
 /**
  * Keep what everybody opens warm, so the first click of the morning is as quick as the
@@ -2680,6 +2716,22 @@ export default async function handler(req, res) {
     if (view === 'labels' && url.searchParams.get('shelf') === '1') {
       const doc = await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null);
       send(200, JSON.stringify(shelfPulse(doc)), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      return;
+    }
+    // The hand-out board, polled every few seconds while its dialog is open. Packers have
+    // their own page; this is the view over all of them.
+    if (view === 'labels' && url.searchParams.get('board') === '1') {
+      const json = (status, body) => send(status, JSON.stringify(body), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      if (user.role === 'packer') {
+        json(403, { error: 'Papan penugasan hanya untuk admin label.' });
+        return;
+      }
+      try {
+        json(200, await cached('labels:board', 1_500, readLabelBoard));
+      } catch (error) {
+        console.error('dashboard/labels board failed:', error.message);
+        json(502, { error: 'Papan penugasan belum bisa dibaca, dicoba lagi otomatis.' });
+      }
       return;
     }
     if (view === 'labels' && url.searchParams.has('lookup')) {
