@@ -310,3 +310,10 @@ test('the label table filters by product too, a bundle counting for its parts', 
   assert.match(html, /data-filter="products"[^>]*><option value="\*">Semua produk<\/option><option value="Inside Out Protocol/, 'listed by name');
   assert.match(html, /key === 'products' \? have\.indexOf\('\|' \+ f\.value \+ '\|'\) !== -1/);
 });
+
+test('the label size is not asked any more: every print goes out at the default, A6', () => {
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W')], assignments: null, packers: [packer] });
+  assert.doesNotMatch(html, /Ukuran label/);
+  assert.doesNotMatch(html, /<select[^>]*name="size"/);
+  assert.match(html, /<input type="hidden" name="size" value="a6">/);
+});

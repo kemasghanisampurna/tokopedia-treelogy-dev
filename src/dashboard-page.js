@@ -7966,9 +7966,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
           <span class="grow"></span>${board.button}
         </div>` : '';
 
-  const sizeOptions = Object.entries(sizes)
-    .map(([id, meta]) => `<option value="${escape(id)}" ${id === defaultSize ? 'selected' : ''}>${escape(meta.label)}</option>`)
-    .join('');
+  // One label size from now on (A6, as the courier prints it): sent with every print, not asked.
+  void sizes;
 
   // Its own GET form, above the print form rather than inside it: a form cannot be nested
   // in another, and filtering must never be one slip away from sending a print job.
@@ -8095,8 +8094,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         <form method="post" action="/api/labels" target="_blank" id="lbform"${empty ? ' data-empty hidden' : ''}>
           <input type="hidden" name="csrf" value="${escape(csrf)}">
           ${`<div class="filters">
-            <label class="dr__lbl" for="size">Ukuran label</label>
-            <select class="dr__in" id="size" name="size">${sizeOptions}</select>${assignTools}
+            <input type="hidden" name="size" value="${escape(defaultSize)}">${assignTools}
             <span class="grow"></span>
             <a class="chip" href="?view=labels&reprint=${showReprints ? '0' : '1'}">${
               showReprints ? 'Daftar harian' : 'Cetak ulang'}</a>
