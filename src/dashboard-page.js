@@ -332,9 +332,31 @@ export function pager(paged, { baseQuery, noun }) {
  */
 function channelTag(order) {
   const meta = channelMeta(order.channel);
-  const source = order.channel === 'manual' ? PREFIXES[order.source]?.label : null;
-  return `<span class="tag" style="--accent:${meta.accent}">${escape(source ?? meta.label)}</span>`;
+  return `<span class="tag" style="--accent:${meta.accent}">${escape(channelLabel(order))}</span>`;
 }
+/**
+ * A table heading that filters its column: the heading's own word with a dropdown of the
+ * values on the list and how many rows carry each - "Kanal" -> Shopee (12), TikTok Shop
+ * (8). A plain heading while there is only one value to choose. The page applies it as
+ * the search does: rows filtered out are hidden and their checkboxes go quiet, so Cetak
+ * and Tugaskan reach exactly what is on screen.
+ */
+function tableFilter(key, word, all, values, blank = '', plain = word) {
+  const counts = new Map();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  if (counts.size < 2) return escape(plain);
+  const options = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([v, n]) => `<option value="${escape(v)}">${escape(v || blank)} (${n})</option>`).join('');
+  return `<label class="lbf"><span class="lbf__w">${escape(word)}</span><select class="lbf__s" data-filter="${escape(key)}" aria-label="Saring ${escape(word.toLowerCase())}"><option value="*">${escape(all)}</option>${options}</select></label>`;
+}
+
+/** What a row's channel chip says: the marketplace, or for a typed-in sale its source. */
+function channelLabel(order) {
+  const source = order.channel === 'manual' ? PREFIXES[order.source]?.label : null;
+  return source ?? channelMeta(order.channel).label;
+}
+/** The courier a row is filtered by: as the platform names it, or none yet. */
+const carrierOf = (order) => String(order.carrier ?? '').trim();
 
 /** Escaped: a marketplace order at what it pays out, anything else at its own total. */
 function orderWorth(order) {
@@ -1215,6 +1237,16 @@ tr.grp .grp__sel{display:inline-flex; align-items:center; gap:.5rem; cursor:poin
 .rpf__to{color:var(--dim); padding:0 .1rem}
 .rpf__n{font-size:.8rem; color:var(--muted); white-space:nowrap}
 .lbs__in{min-width:16rem; flex:0 1 22rem}
+.lbf__row{display:inline-flex; align-items:center; gap:1.1rem}
+.lbf{position:relative; display:inline-flex; align-items:center; gap:.4rem; margin:-.3rem -.5rem; padding:.3rem 1.6rem .3rem .5rem; border-radius:9px; cursor:pointer;
+  transition:background-color .15s, color .15s}
+.lbf::after{content:""; position:absolute; right:.6rem; top:50%; width:5px; height:5px; margin-top:-4px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor;
+  transform:rotate(45deg); opacity:.7; pointer-events:none}
+.lbf:hover{background:color-mix(in srgb,var(--fg) 6%,transparent); color:var(--fg)}
+.lbf:focus-within{outline:2px solid var(--brand); outline-offset:1px}
+.lbf__s{position:absolute; inset:0; width:100%; opacity:0; cursor:pointer; font:inherit; text-transform:none}
+.lbf__w::after{content:attr(data-pick); margin-left:.4rem; text-transform:none; letter-spacing:0; font-weight:600; color:var(--brand)}
+.lbf.is-on{background:color-mix(in srgb,var(--brand) 12%,transparent); color:var(--fg)}
 .rpf__hint{margin:0 .15rem 1rem; font-size:.78rem; color:var(--dim)}
 .xp__c{display:inline-block; padding:.12rem .5rem; border-radius:999px; font-size:.78rem;
   color:var(--act); background:color-mix(in srgb,var(--act) 14%,transparent);
@@ -6189,7 +6221,7 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
   const isShort = short.length > 0;
   if (held || isShort) on = false;
   const why = [extra || (readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : ''), held ? `dicetak oleh ${heldBy} - lepas tugasnya dulu untuk mencetak sendiri` : ''].filter(Boolean).join(' · ');
-  return `<tr data-id="${escape(String(o.id).toLowerCase())}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
+  return `<tr data-id="${escape(String(o.id).toLowerCase())}" data-ch="${escape(channelLabel(o))}" data-carrier="${escape(carrierOf(o))}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
       <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}${isShort ? ' data-short="1"' : ''}${stock}
         ${batchKey ? `data-batch="${escape(batchKey)}"` : ''}${out ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">`}</td>
       <td>${channelTag(o)}</td>
@@ -8059,7 +8091,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
           <div class="scroll"><table class="dense">
             <thead><tr>
               <th><input type="checkbox" id="head" checked aria-label="Pilih semua"></th>
-              <th>Kanal</th><th>Pesanan</th><th>Pembeli</th><th>Label</th>
+              ${showReprints ? '<th>Kanal</th><th>Pesanan</th>' : `<th>${tableFilter('ch', 'Kanal', 'Semua kanal', candidates.map(({ order }) => channelLabel(order)))}</th>
+              <th><span class="lbf__row">Pesanan ${tableFilter('carrier', 'Kurir', 'Semua kurir', candidates.map(({ order }) => carrierOf(order)), 'Belum ada kurir', '')}</span></th>`}<th>Pembeli</th><th>Label</th>
             </tr></thead>
             <tbody id="lb-rows">${rows}</tbody>
             <tbody id="lbq-more"></tbody>
@@ -8310,7 +8343,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
         // A run outside the date or printer filter only shows when the search finds
         // something in it; with the box empty the filter decides, as before.
         var out = row.hasAttribute('data-out');
-        var hit = needle ? row.getAttribute('data-id').indexOf(needle) !== -1 : !out;
+        var hit = (needle ? row.getAttribute('data-id').indexOf(needle) !== -1 : !out) && passes(row);
         row.hidden = !hit;
         var pick = row.querySelector('.pick');
         if (pick) pick.disabled = !hit;
@@ -8346,6 +8379,22 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
       if (bare.length >= ${ID_SEARCH_MIN}) timer = setTimeout(function () { lookup(bare); }, 350);
       refresh(); syncBatches(); sync(); report(needle);
     }
+
+    // The heading filters (Kanal, Kurir) narrow the list the same way the search does.
+    var filters = Array.prototype.slice.call(form.querySelectorAll('.lbf__s'));
+    function passes(row) {
+      return filters.every(function (f) { return f.value === '*' || row.getAttribute('data-' + f.getAttribute('data-filter')) === f.value; });
+    }
+    filters.forEach(function (f) {
+      f.addEventListener('change', function () {
+        var on = f.value !== '*';
+        var label = f.closest('.lbf');
+        label.classList.toggle('is-on', on);
+        var opt = f.options[f.selectedIndex];
+        label.querySelector('.lbf__w').setAttribute('data-pick', on ? opt.text.slice(0, opt.text.lastIndexOf(' (')) : '');
+        apply();
+      });
+    });
 
     // The clear cross inside a search field and a paste fire input and not keyup, and
     // input covers typing too - one listener, so one search per change.

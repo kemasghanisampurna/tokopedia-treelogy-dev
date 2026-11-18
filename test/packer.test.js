@@ -289,3 +289,14 @@ test('every packer chip keeps its count whichever chip is pressed', () => {
   assert.match(html, /Budi &middot; 3</);
   assert.match(html, /Cici &middot; 0</);
 });
+
+test('the label table filters by channel and by courier from its headings', () => {
+  const mk = (id, channel, carrier) => ({ ...order(id, 'W'), channel, carrier });
+  const orders = [mk('#1', 'shopify', 'JNE REG'), mk('#2', 'shopify', 'J&T Express'), mk('#3', 'shopify', '')];
+  const html = renderLabels({ ...base, arranged: { '#1': 1, '#2': 1, '#3': 1 }, user: agas, orders, assignments: null, packers: [packer] });
+  assert.match(html, /<tr data-id="#1" data-ch="Shopify" data-carrier="JNE REG"/);
+  assert.match(html, /data-filter="carrier"[^>]*><option value="\*">Semua kurir<\/option>/);
+  assert.match(html, /<option value="">Belum ada kurir \(1\)<\/option>/, 'a parcel with no courier yet can be picked out too');
+  assert.doesNotMatch(html, /data-filter="ch"/, 'one channel on the list: a plain heading');
+  assert.match(html, /&& passes\(row\)/, 'applied with the search, so hidden rows are not printed');
+});

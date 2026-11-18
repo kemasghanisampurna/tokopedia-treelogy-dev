@@ -177,7 +177,7 @@ test('filtering to one day leaves that run grouped and drops the rest', () => {
   assert.doesNotMatch(html, /<tr class="grp" data-grp="[^"]*">(?:(?!<\/tr>)[\s\S])*<span class="grp__by">Vanya<\/span>/);
   assert.match(html, /1 batch &middot; 1 label <span class="dim">dari 2 batch<\/span>/);
   // Out of the filter means out of the print and out of the count on the button.
-  const outside = html.match(/<tr data-id="[^"]*" data-batch="[^"]*" data-out="1" hidden>\s*<td><input class="pick"[^>]*>/g) ?? [];
+  const outside = html.match(/<tr data-id="[^"]*" data-ch="[^"]*" data-carrier="[^"]*" data-batch="[^"]*" data-out="1" hidden>\s*<td><input class="pick"[^>]*>/g) ?? [];
   assert.equal(outside.length, 2, 'both of Vanya\'s parcels stay reachable by the search');
   for (const pick of outside) assert.match(pick, / disabled/);
   assert.match(html, /<span id="n">1<\/span> label/);
@@ -344,7 +344,7 @@ test('a parcel the courier took is still found in its run, with no way to print 
     orders: [order('tokopedia', '586GONE', { status: 'DELIVERED' }), order('tokopedia', '586SELLERCENTER', { status: 'DELIVERED' })],
     showReprints: true, printed, people: staff,
   });
-  assert.match(html, /<tr data-id="586gone" data-batch="b1">/);
+  assert.match(html, /<tr data-id="586gone" data-ch="[^"]*" data-carrier="[^"]*" data-batch="b1">/);
   assert.match(html, /label tidak bisa dicetak ulang setelah pickup/);
   assert.doesNotMatch(html, /value="tokopedia:586GONE"/);
   // Printed outside the dashboard: no run to sit in, so not listed.
@@ -365,11 +365,11 @@ test('a search across every order lists them all, printable or not, and says whi
   // Shopee still issues a waybill after pickup: found, and ticked to print.
   assert.match(html, /value="shopee:2609SHIP" checked/);
   // Tokopedia does not: listed, no checkbox, and when it was printed and by whom.
-  assert.match(html, /<tr data-id="5863gone">/);
+  assert.match(html, /<tr data-id="5863gone" data-ch="[^"]*" data-carrier="[^"]*">/);
   assert.doesNotMatch(html, /value="tokopedia:5863GONE"/);
   assert.match(html, /label tidak bisa dicetak ulang setelah pickup · dicetak [^<]* oleh Ika/);
   // Not arranged yet: listed with the reason, nothing to print.
-  assert.match(html, /<tr data-id="5863wait">/);
+  assert.match(html, /<tr data-id="5863wait" data-ch="[^"]*" data-carrier="[^"]*">/);
   assert.doesNotMatch(html, /value="tokopedia:5863WAIT"/);
   assert.match(html, /atur pengiriman dulu di Seller Center/);
 });
