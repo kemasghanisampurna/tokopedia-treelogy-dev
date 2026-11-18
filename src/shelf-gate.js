@@ -2,7 +2,7 @@ import { loadWarehouse } from './warehouse-run.js';
 import { ordersByIds } from './db/orders.js';
 import { loadAssignments } from './label-assign.js';
 import { printedLabels } from './shopify/label.js';
-import { shortagesInTurn, shortageText } from './warehouse-reserve.js';
+import { shortagesInTurn, shortageText, needsFor } from './warehouse-reserve.js';
 
 /**
  * Goods that are not on the shelf cannot be packed - so their label is not printed,
@@ -61,9 +61,16 @@ export async function shelfShortages(keys, { handingOut = false } = {}) {
 export async function handedOutShortages() {
   const { shelf, assignments, orders } = await readTurn([]);
   const turn = shortagesInTurn(shelf, orders, assignments);
-  const out = {};
-  for (const [key, short] of turn) if (short.length && assignments.orders?.[key]) out[key] = { to: assignments.orders[key].to, text: shortageText(short) };
-  return out;
+  const short = {};
+  for (const [key, list] of turn) if (list.length && assignments.orders?.[key]) short[key] = { to: assignments.orders[key].to, text: shortageText(list) };
+  // What the handed-out parcels hold between them, {code: qty}: the label page takes it
+  // off "di rak" before it lets more parcels be handed out or printed (stock check popup).
+  const held = {};
+  for (const o of orders) {
+    if (o.stage !== 'to_ship' || !assignments.orders?.[`${o.channel}:${o.id}`]) continue;
+    for (const [code, qty] of Object.entries(needsFor(shelf, o))) held[code] = (held[code] ?? 0) + qty;
+  }
+  return { short, held };
 }
 
 /** "#13131: Stok di rak kurang: Pouch Treelogy (perlu 1, ada 0) (dan 2 pesanan lain)" */

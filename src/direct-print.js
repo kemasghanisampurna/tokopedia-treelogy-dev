@@ -285,7 +285,7 @@ export function directPrintScript(printer) {
   var host = null, connected = false, busy = false, printing = null;
 
   function say(text, tone) { state.textContent = text; dot.className = 'dp__dot ' + (tone || ''); }
-  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled):not([data-held]):not([data-short])').length : 0; }
+  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled):not([data-held])').length : 0; }
   function ready() {
     var n = picked();
     goN.textContent = n ? n + ' label' : '';
@@ -385,9 +385,11 @@ export function directPrintScript(printer) {
 
   goBtn.addEventListener('click', async function () {
     if (!form || busy || !connected) return;
+    // Enough on the shelf for what is ticked, or the person picks what goes (stockCheckKit).
+    if (window.treelogyStockCheck && !(await window.treelogyStockCheck('print')).ok) return;
     var body = new URLSearchParams(new FormData(form));
     // A parcel handed to a packer is theirs to print: ticked for Tugaskan/Lepas, never sent.
-    var heldKeys = Array.prototype.map.call(form.querySelectorAll('.pick[data-held], .pick[data-short]'), function (p) { return p.value; });
+    var heldKeys = Array.prototype.map.call(form.querySelectorAll('.pick[data-held]'), function (p) { return p.value; });
     var keep = body.getAll('order').filter(function (v) { return heldKeys.indexOf(v) < 0; });
     body.delete('order'); keep.forEach(function (v) { body.append('order', v); });
     // Rendered on the server, in the printer's own language: the phone only sends bytes.
@@ -858,7 +860,7 @@ export function benchScript() {
   var online = box.getAttribute('data-online') === '1', busy = false;
 
   function say(text, tone) { state.textContent = text; dot.className = 'dp__dot ' + (tone || ''); }
-  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled):not([data-held]):not([data-short])').length : 0; }
+  function picked() { return form ? form.querySelectorAll('.pick:checked:not(:disabled):not([data-held])').length : 0; }
   function ready() {
     var n = picked();
     goN.textContent = n ? n + ' label' : '';
@@ -899,9 +901,11 @@ export function benchScript() {
 
   goBtn.addEventListener('click', async function () {
     if (!form || busy || !online) return;
+    // Enough on the shelf for what is ticked, or the person picks what goes (stockCheckKit).
+    if (window.treelogyStockCheck && !(await window.treelogyStockCheck('print')).ok) return;
     var body = new URLSearchParams(new FormData(form));
     // A parcel handed to a packer is theirs to print: ticked for Tugaskan/Lepas, never sent.
-    var heldKeys = Array.prototype.map.call(form.querySelectorAll('.pick[data-held], .pick[data-short]'), function (p) { return p.value; });
+    var heldKeys = Array.prototype.map.call(form.querySelectorAll('.pick[data-held]'), function (p) { return p.value; });
     var keep = body.getAll('order').filter(function (v) { return heldKeys.indexOf(v) < 0; });
     body.delete('order'); keep.forEach(function (v) { body.append('order', v); });
     body.set('format', 'queue');

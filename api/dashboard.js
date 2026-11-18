@@ -33,7 +33,7 @@ import { directPrinterFor, directPrintHostPage } from '../src/direct-print.js';
 import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
 import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo, splitPrintable, heldText } from '../src/label-assign.js';
-import { boardSnapshot, boardUnknown } from '../src/label-board.js';
+import { boardSnapshot, boardUnknown, shelfNames } from '../src/label-board.js';
 import { reserveFor, shelfPulse, shortagesInTurn } from '../src/warehouse-reserve.js';
 import { shelfShortages, shortRefusal, handedOutShortages } from '../src/shelf-gate.js';
 import { labelReadiness } from '../src/labels.js';
@@ -2737,8 +2737,11 @@ export default async function handler(req, res) {
        * polling; null when it cannot be read, and the page falls back to the shelf alone.
        */
       const turn = await cached('labels:shelf-turn', 3_000, handedOutShortages).catch(() => null);
-      const mine = turn ? Object.fromEntries(Object.entries(turn).filter(([, v]) => user.role !== 'packer' || v.to === user.email).map(([k, v]) => [k, v.text])) : null;
-      send(200, JSON.stringify({ ...shelfPulse(doc), turn: mine }), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      const mine = turn ? Object.fromEntries(Object.entries(turn.short).filter(([, v]) => user.role !== 'packer' || v.to === user.email).map(([k, v]) => [k, v.text])) : null;
+      // For the label page's stock check: what handed-out parcels hold, and the shelf's
+      // items under their catalogue names.
+      const extra = user.role === 'packer' ? {} : { held: turn?.held ?? null, names: shelfNames(doc?.recipes ?? {}) };
+      send(200, JSON.stringify({ ...shelfPulse(doc), turn: mine, ...extra }), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       return;
     }
     // The hand-out board, polled every few seconds while its dialog is open. Packers have

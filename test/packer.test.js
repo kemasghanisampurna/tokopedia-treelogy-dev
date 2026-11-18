@@ -258,3 +258,22 @@ test('a parcel handed out earlier holds its goods: the next one on the page is s
   assert.match(page, /data-key="shopify:#3" data-state="short"/, 'the later hand-out waits');
   assert.match(page, /data-key="shopify:#1" data-state="todo"/, 'the earlier one prints');
 });
+
+test('a bulk hand-out or print adds the ticked parcels up per shelf item and asks which go ahead when it runs short', async () => {
+  const { recipeOf } = await import('../src/warehouse.js');
+  const code = Object.keys(recipeOf('OMC-90-001'))[0];
+  const shelf = { items: { [code]: { name: 'Caps 90', qty: 3 } }, orders: {}, recipes: {} };
+  const all = { ...base, arranged: { '#1': 1, '#2': 1 } };
+  const html = renderLabels({ ...all, user: agas, orders: [order('#1', 'W'), order('#2', 'S')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer], shelf });
+  // Each row carries what it takes off the shelf and what is in it, in catalogue names.
+  assert.match(html, new RegExp(`value="shopify:#2"[^>]*data-need="\\{&quot;${code}&quot;:2\\}"[^>]*data-goods="\\[\\{&quot;n&quot;:&quot;Moringa Capsules 90 caps&quot;,&quot;q&quot;:2\\}\\]"`));
+  assert.match(html, /value="shopify:#1"[^>]*data-assigned="1"/, 'a handed-out row is counted in what is held');
+  assert.match(html, /<dialog class="stk" id="stk"/);
+  assert.match(html, /window\.treelogyStockCheck = function \(mode, who\)/);
+  assert.match(html, /var mode = b\.getAttribute\('value'\) === 'label_assign' \? 'assign' : \(b\.id === 'go' \? 'print' : ''\);/, 'asked before Tugaskan and Cetak');
+  const fs = await import('node:fs');
+  const print = fs.readFileSync(new URL('../src/direct-print.js', import.meta.url), 'utf8');
+  assert.equal((print.match(/await window\.treelogyStockCheck\('print'\)/g) ?? []).length, 2, 'the bench and the phone printer ask too');
+  const packerPage = renderLabels({ ...all, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer], shelf });
+  assert.doesNotMatch(packerPage, /id="stk"/, 'a packer prints one parcel at a time and has no bulk to check');
+});

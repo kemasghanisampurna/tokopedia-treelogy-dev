@@ -18,6 +18,7 @@ import { paginate, pageHref, pageWindow, PER_PAGE_OPTIONS, DEFAULT_PER_PAGE } fr
 import { can, canView, homeView, ROLES } from './users.js';
 import { assignmentFor, mayPrint } from './label-assign.js';
 import { shortagesFor, shortageText, needsFor } from './warehouse-reserve.js';
+import { boardGoods } from './label-board.js';
 import { phoneForCourier } from './phone.js';
 
 /** Server-rendered omnichannel dashboard. No secrets and no user input reach the markup unescaped. */
@@ -6164,7 +6165,19 @@ const READY_TONE = { needsPrint: 'ok', reprint: 'flag' };
  */
 const shortOnShelf = (shelf, turn, o) => turn?.get(`${o.channel}:${o.id}`) ?? shortagesFor(shelf, o);
 
-function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '', viewer = null, short = [] } = {}) {
+/**
+ * What a row takes off the shelf and what is in it, on its checkbox, for the stock check
+ * that runs before a bulk hand-out or print: {code: qty}, and the goods in catalogue names.
+ */
+function stockData(shelf, o, assigned) {
+  if (!shelf) return '';
+  const need = needsFor(shelf, o);
+  if (!Object.keys(need).length) return '';
+  const goods = boardGoods(o.lines).map((g) => ({ n: [g.name, g.variant].filter(Boolean).join(' '), q: g.qty }));
+  return ` data-need="${escape(JSON.stringify(need))}" data-goods="${escape(JSON.stringify(goods))}" data-buyer="${escape(o.buyer ?? '')}"${assigned ? ' data-assigned="1"' : ''}`;
+}
+
+function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '', viewer = null, short = [], stock = '' } = {}) {
   // The stage pill is redundant here - every row on this page is printable by
   // definition, and the readiness note already says what matters.
   const times = Number(entry?.times ?? 0);
@@ -6177,7 +6190,7 @@ function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { 
   if (held || isShort) on = false;
   const why = [extra || (readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : ''), held ? `dicetak oleh ${heldBy} - lepas tugasnya dulu untuk mencetak sendiri` : ''].filter(Boolean).join(' · ');
   return `<tr data-id="${escape(String(o.id).toLowerCase())}"${batchKey ? ` data-batch="${escape(batchKey)}"` : ''}${out ? ' data-out="1" hidden' : ''}>
-      <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}${isShort ? ' data-short="1"' : ''}
+      <td>${gone ? '' : `<input class="pick" type="checkbox" name="order" value="${escape(o.channel)}:${escape(o.id)}"${on ? ' checked' : ''}${held ? ` data-held="${escape(heldBy)}"` : ''}${isShort ? ' data-short="1"' : ''}${stock}
         ${batchKey ? `data-batch="${escape(batchKey)}"` : ''}${out ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">`}</td>
       <td>${channelTag(o)}</td>
       <td>
@@ -6307,7 +6320,7 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
       : '';
     const why = [gone && readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : '', when]
       .filter(Boolean).join(' · ');
-    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user, short: gone ? [] : shortOnShelf(shelf, shelfTurn, o) });
+    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user, short: gone ? [] : shortOnShelf(shelf, shelfTurn, o), stock: gone ? '' : stockData(shelf, o, assignmentFor(assignments, o)) });
   }).join('');
 }
 
@@ -7471,6 +7484,264 @@ export function labelBoard({ packers = [] } = {}) {
   return { button, dialog, style, script };
 }
 
+/**
+ * The stock check before a bulk hand-out or print.
+ *
+ * Every ticked row says what it takes off the shelf (data-need) and what is in it, in
+ * catalogue names. Before Tugaskan or Cetak, the selection is added up per shelf item and
+ * held against "di rak" less what parcels already handed out hold (read fresh from the
+ * shelf pulse). Enough for all of it: the action goes ahead as before. Not enough: a
+ * dialog lists the items that run short and the parcels that need them, and the person
+ * picks which go ahead - the meter says live whether the pick fits, and the button stays
+ * off until it does. The rest are unticked and stay on the list. The server holds the
+ * same line (src/shelf-gate.js), so a page that is out of date still prints nothing short.
+ */
+export function stockCheckKit() {
+  const dialog = `<dialog class="stk" id="stk" aria-labelledby="stk-h" aria-describedby="stk-sub">
+    <div class="stk__head">
+      <span class="stk__ico" aria-hidden="true">${svg('warn')}</span>
+      <div class="stk__ht"><h2 id="stk-h">Stok di rak tidak cukup</h2><p id="stk-sub"></p></div>
+      <button class="stk__x" type="button" id="stk-x" aria-label="Batalkan">${svg('x')}</button>
+    </div>
+    <div class="stk__items" id="stk-items"></div>
+    <div class="stk__lh"><span>Pesanan</span><button class="stk__all" type="button" id="stk-none">Kosongkan</button></div>
+    <ul class="stk__list" id="stk-list"></ul>
+    <p class="stk__rest" id="stk-rest" hidden></p>
+    <div class="stk__foot">
+      <span class="stk__hint" id="stk-hint" role="status"></span>
+      <button class="chip" type="button" id="stk-no">Batal</button>
+      <button class="cta" type="button" id="stk-go"></button>
+    </div>
+  </dialog>`;
+  const style = `
+.stk{width:min(34rem,calc(100vw - 2rem)); max-height:min(42rem,calc(100dvh - 2rem)); padding:0; border:1px solid var(--glass-line); border-radius:20px;
+  background:var(--panel); color:inherit; box-shadow:0 32px 80px -32px rgba(0,0,0,.7); overflow:hidden}
+.stk[open]{display:flex; flex-direction:column; animation:stkIn .28s cubic-bezier(.16,1,.3,1)}
+.stk::backdrop{background:rgba(6,12,9,.5); backdrop-filter:blur(4px)}
+.stk__head{display:flex; align-items:flex-start; gap:.75rem; padding:1.35rem 1.35rem 1rem}
+.stk__ico{flex:none; color:var(--warn); padding-top:.1rem}
+.stk__ico .ico{width:20px; height:20px}
+.stk__ht{flex:1; min-width:0}
+.stk__ht h2{margin:0; font-size:1rem; font-weight:650; letter-spacing:-.01em}
+.stk__ht p{margin:.25rem 0 0; font-size:.8rem; line-height:1.5; color:var(--muted)}
+.stk__x{flex:none; width:32px; height:32px; margin:-.3rem -.4rem 0 0; display:grid; place-items:center; border-radius:10px; border:0; background:transparent; color:var(--dim); cursor:pointer}
+.stk__x:hover{color:var(--fg); background:color-mix(in srgb,var(--fg) 6%,transparent)}
+.stk__x .ico{width:16px; height:16px}
+.stk__items{display:flex; flex-direction:column; gap:.9rem; padding:.2rem 1.35rem 1.1rem}
+.stk__it{--c:var(--bad); display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.15rem 1rem; align-items:baseline}
+.stk__it.is-ok{--c:var(--good)}
+.stk__itn{min-width:0}
+.stk__itn b{display:block; font-size:.86rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.stk__itn span{display:block; font-size:.72rem; color:var(--dim); margin-top:.15rem}
+.stk__itv{font-family:"Fira Code",ui-monospace,monospace; font-size:.8rem; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--dim)}
+.stk__itv b{font-size:1rem; font-weight:600; color:var(--c); transition:color .2s}
+.stk__bar{grid-column:1/-1; height:4px; margin-top:.45rem; border-radius:99px; background:color-mix(in srgb,var(--fg) 8%,transparent); overflow:hidden}
+.stk__bar i{display:block; height:100%; width:0; border-radius:inherit; background:var(--c); transition:width .3s cubic-bezier(.16,1,.3,1), background-color .2s}
+.stk__lh{display:flex; align-items:center; justify-content:space-between; padding:.75rem 1.35rem .35rem; border-top:1px solid var(--glass-line);
+  font-size:.68rem; letter-spacing:.07em; text-transform:uppercase; color:var(--dim)}
+.stk__all{border:0; background:none; color:var(--muted); font:inherit; font-size:.74rem; letter-spacing:0; text-transform:none; cursor:pointer; padding:.35rem 0}
+.stk__all:hover{color:var(--fg)}
+.stk__list{list-style:none; margin:0; padding:0 1.35rem; overflow:auto; flex:1; min-height:0}
+.stk__o + .stk__o{border-top:1px solid color-mix(in srgb,var(--glass-line) 70%,transparent)}
+.stk__o label{display:grid; grid-template-columns:auto minmax(0,1fr); gap:.2rem .8rem; align-items:start; padding:.7rem 0; cursor:pointer}
+.stk__o input{width:17px; height:17px; margin:.1rem 0 0; accent-color:var(--brand); grid-row:span 2; cursor:pointer}
+.stk__o input:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.stk__ot{display:flex; align-items:baseline; gap:.5rem; min-width:0; transition:opacity .15s}
+.stk__ot b{font-family:"Fira Code",ui-monospace,monospace; font-size:.8rem; font-weight:600; white-space:nowrap}
+.stk__ot span{font-size:.78rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.stk__og{font-size:.74rem; line-height:1.5; color:var(--dim); transition:opacity .15s}
+.stk__og em{font-style:normal; color:var(--warn)}
+.stk__o:not(.is-on) .stk__ot,.stk__o:not(.is-on) .stk__og{opacity:.5}
+.stk__rest{margin:0; padding:.6rem 1.35rem 0; font-size:.74rem; color:var(--dim)}
+.stk__rest[hidden]{display:none}
+.stk__foot{display:flex; align-items:center; gap:.6rem; padding:1rem 1.35rem 1.25rem}
+.stk__hint{flex:1; min-width:0; font-size:.74rem; color:var(--bad)}
+.stk__hint.is-ok{color:var(--dim)}
+.stk__foot .cta[disabled]{opacity:.4; cursor:not-allowed; box-shadow:none}
+@keyframes stkIn{from{opacity:0; transform:translateY(8px)}}
+@media (max-width:640px){
+  .stk{width:100vw; max-width:100vw; height:100dvh; max-height:100dvh; border-radius:0; border:0}
+  .stk__head{padding:calc(1.1rem + env(safe-area-inset-top)) 1rem .9rem}
+  .stk__items,.stk__list,.stk__lh,.stk__rest{padding-left:1rem; padding-right:1rem}
+  .stk__foot{flex-wrap:wrap; padding:.9rem 1rem calc(1rem + env(safe-area-inset-bottom))}
+  .stk__hint{flex-basis:100%}
+  .stk__foot .chip,.stk__foot .cta{flex:1; min-height:44px; justify-content:center}
+  .stk__o label{padding:.8rem 0}
+}
+@media (prefers-reduced-motion:reduce){ .stk[open]{animation:none} .stk__bar i{transition:none} }
+`;
+  const script = `
+(function () {
+  var form = document.getElementById('lbform');
+  var dlg = document.getElementById('stk');
+  if (!form || !dlg || typeof dlg.showModal !== 'function') return;
+  var $ = function (id) { return document.getElementById(id); };
+  var itemsEl = $('stk-items'), listEl = $('stk-list'), restEl = $('stk-rest'), subEl = $('stk-sub'), hint = $('stk-hint'), goBtn = $('stk-go');
+  var answer = null;
+  function parse(v, d) { try { return JSON.parse(v || ''); } catch (e) { return d; } }
+  function node(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function finish(result) { var a = answer; answer = null; if (dlg.open) dlg.close(); if (a) a(result); }
+  function pulse() {
+    var ctl = window.AbortController ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctl) ctl.abort(); }, 4000);
+    return fetch(location.pathname + '?view=labels&shelf=1', { credentials: 'same-origin', cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (v) { clearTimeout(t); return v; });
+  }
+
+  /*
+   * mode 'assign' | 'print'; who: the packer's name for a hand-out. Resolves {ok, asked}:
+   * ok false when the person cancelled; asked when the dialog showed - it named the count
+   * and the packer, so it stands for the usual question.
+   */
+  window.treelogyStockCheck = function (mode, who) {
+    var picks = Array.prototype.filter.call(form.querySelectorAll('.pick'), function (p) {
+      return p.checked && !p.disabled && (mode === 'assign' || !p.hasAttribute('data-held'));
+    });
+    var needing = picks.filter(function (p) { return p.hasAttribute('data-need'); });
+    if (!needing.length) return Promise.resolve({ ok: true });
+    return pulse().then(function (s) {
+      // No answer from the shelf: the server holds the line on its own.
+      if (!s || !s.items) return { ok: true };
+      var held = s.held || null, names = s.names || {};
+      var free = {}, mine = {}, total = {};
+      Object.keys(s.items).forEach(function (c) { free[c] = s.items[c].q - ((held && held[c]) || 0); });
+      needing.forEach(function (p) {
+        p._need = parse(p.getAttribute('data-need'), {});
+        Object.keys(p._need).forEach(function (c) {
+          total[c] = (total[c] || 0) + p._need[c];
+          // A ticked parcel already handed out is counted in what is held; it is the one
+          // being handed out again (or printed by its own packer), so it does not hold
+          // against itself.
+          if (held && p.hasAttribute('data-assigned') && c in free) { free[c] += p._need[c]; mine[c] = (mine[c] || 0) + p._need[c]; }
+        });
+      });
+      var over = Object.keys(total).filter(function (c) { return c in free && total[c] > free[c]; });
+      if (!over.length) return { ok: true };
+      return new Promise(function (resolve) { answer = resolve; show(mode, who, picks, needing, free, over, s, held, mine, names); });
+    });
+  };
+
+  function show(mode, who, picks, needing, free, over, s, held, mine, names) {
+    var affected = needing.filter(function (p) { return over.some(function (c) { return p._need[c]; }); });
+    var rest = picks.length - affected.length;
+    var nameOf = function (c) { return names[c] || (s.items[c] && s.items[c].n) || c; };
+    subEl.textContent = 'Pilih yang lanjut ' + (mode === 'assign' ? 'ditugaskan ke ' + (who || 'packer') : 'dicetak')
+      + '. Yang tidak dicentang tetap di daftar.';
+
+    // The first ones down the page that fit, as a starting point the person can change.
+    var left = {};
+    Object.keys(free).forEach(function (c) { left[c] = free[c]; });
+    var chosen = affected.map(function (p) {
+      var fits = Object.keys(p._need).every(function (c) { return !(c in left) || p._need[c] <= left[c]; });
+      if (fits) Object.keys(p._need).forEach(function (c) { if (c in left) left[c] -= p._need[c]; });
+      return fits;
+    });
+
+    itemsEl.textContent = '';
+    var meters = over.map(function (c) {
+      var it = node('div', 'stk__it');
+      var name = node('div', 'stk__itn');
+      name.appendChild(node('b', '', nameOf(c)));
+      var others = held ? Math.max(0, (held[c] || 0) - (mine[c] || 0)) : 0;
+      name.appendChild(node('span', '', 'Di rak ' + Math.max(0, s.items[c].q) + (others ? ' · ' + others + ' sudah untuk tugas lain' : '')));
+      it.appendChild(name);
+      var val = node('div', 'stk__itv');
+      var pick = node('b', '', '0');
+      val.appendChild(pick);
+      val.appendChild(document.createTextNode(' / ' + Math.max(0, free[c])));
+      it.appendChild(val);
+      var bar = node('div', 'stk__bar');
+      var fill = node('i');
+      bar.appendChild(fill);
+      it.appendChild(bar);
+      itemsEl.appendChild(it);
+      return { code: c, el: it, pick: pick, fill: fill };
+    });
+
+    listEl.textContent = '';
+    var boxes = affected.map(function (p, i) {
+      var li = node('li', 'stk__o');
+      var label = node('label');
+      var box = node('input');
+      box.type = 'checkbox';
+      box.checked = chosen[i];
+      label.appendChild(box);
+      var top = node('span', 'stk__ot');
+      var id = p.value.slice(p.value.indexOf(':') + 1);
+      top.appendChild(node('b', '', id));
+      top.appendChild(node('span', '', p.getAttribute('data-buyer') || ''));
+      label.appendChild(top);
+      // One quiet line of what is in the box; the item that runs short stands out in it.
+      var goods = node('span', 'stk__og');
+      var shortNames = over.filter(function (c) { return p._need[c]; }).map(nameOf);
+      var seen = [];
+      parse(p.getAttribute('data-goods'), []).forEach(function (g, i) {
+        if (i) goods.appendChild(document.createTextNode(' · '));
+        var hit = shortNames.indexOf(g.n) >= 0;
+        if (hit) seen.push(g.n);
+        goods.appendChild(node(hit ? 'em' : 'span', '', g.n + ' ×' + g.q));
+      });
+      over.forEach(function (c) {
+        if (!p._need[c] || seen.indexOf(nameOf(c)) >= 0) return;
+        if (goods.childNodes.length) goods.appendChild(document.createTextNode(' · '));
+        goods.appendChild(node('em', '', nameOf(c) + ' ×' + p._need[c]));
+      });
+      label.appendChild(goods);
+      box.setAttribute('aria-label', id + ' lanjut');
+      li.appendChild(label);
+      listEl.appendChild(li);
+      box.addEventListener('change', recount);
+      return { pick: p, box: box, li: li };
+    });
+    restEl.hidden = !rest;
+    restEl.textContent = '+ ' + rest + ' pesanan lain stoknya cukup, tetap lanjut.';
+
+    function recount() {
+      var sum = {};
+      boxes.forEach(function (b) {
+        b.li.classList.toggle('is-on', b.box.checked);
+        if (b.box.checked) Object.keys(b.pick._need).forEach(function (c) { sum[c] = (sum[c] || 0) + b.pick._need[c]; });
+      });
+      var bad = [];
+      meters.forEach(function (m) {
+        var n = sum[m.code] || 0, cap = Math.max(0, free[m.code]);
+        m.pick.textContent = String(n);
+        var ok = n <= cap;
+        m.el.classList.toggle('is-ok', ok);
+        m.fill.style.width = (cap ? Math.min(100, n / cap * 100) : (n ? 100 : 0)) + '%';
+        if (!ok) bad.push(nameOf(m.code) + ' lebih ' + (n - cap));
+      });
+      var count = rest + boxes.filter(function (b) { return b.box.checked; }).length;
+      goBtn.textContent = mode === 'assign' ? 'Tugaskan ' + count + ' pesanan ke ' + (who || 'packer') : 'Cetak ' + count + ' label';
+      goBtn.disabled = bad.length > 0 || count === 0;
+      hint.classList.toggle('is-ok', !bad.length && count > 0);
+      hint.textContent = bad.length ? 'Kurangi: ' + bad.join(', ') : (count ? 'Stok cukup' : 'Belum ada yang dipilih');
+    }
+    recount();
+    goBtn.onclick = function () {
+      // Unticked on the page too, each with its change, so the counts and buttons follow.
+      boxes.forEach(function (b) {
+        if (b.box.checked) return;
+        b.pick.checked = false;
+        b.pick.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      finish({ ok: true, asked: true });
+    };
+    $('stk-none').onclick = function () { boxes.forEach(function (b) { b.box.checked = false; }); recount(); };
+    dlg.showModal();
+    (boxes.length ? boxes[0].box : goBtn).focus();
+  }
+  $('stk-no').addEventListener('click', function () { finish({ ok: false }); });
+  $('stk-x').addEventListener('click', function () { finish({ ok: false }); });
+  dlg.addEventListener('click', function (e) { if (e.target === dlg) finish({ ok: false }); });
+  dlg.addEventListener('close', function () { if (answer) finish({ ok: false }); });
+})();
+`;
+  return { dialog, style, script };
+}
+
 export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, packerDone = [], images = {}, shelf = null, shelfTurn = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
@@ -7542,7 +7813,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     const short = showReprints ? [] : shortOnShelf(shelf, shelfTurn, o);
     const on = !gone && !out && !held && !short.length && ticked < MAX_PRESELECT;
     if (on) ticked += 1;
-    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone, viewer: user, short });
+    return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone, viewer: user, short, stock: showReprints ? '' : stockData(shelf, o, assigned) });
   };
 
   /*
@@ -7630,6 +7901,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
             <button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self" name="action" value="label_assign">Tugaskan</button>
             <button class="chip" type="submit" formaction="/api/dashboard" formtarget="_self" name="action" value="label_unassign">Lepas</button>` : '';
   const board = !isPacker && packers.length ? labelBoard({ packers }) : null;
+  // Before a bulk hand-out or print: enough on the shelf for what is ticked?
+  const stock = !isPacker && !showReprints && shelf ? stockCheckKit() : null;
   const packerChips = !isPacker && packers.length ? `<div class="filters lb-packers">
           <a class="chip${packerFilter ? '' : ' is-on'}" href="?view=labels">Semua</a>
           <a class="chip${packerFilter === 'none' ? ' is-on' : ''}" href="?view=labels&amp;packer=none">Belum ditugaskan &middot; ${assessed.filter((r) => !r.assigned && r.readiness.state === 'needsPrint').length}</a>
@@ -7732,7 +8005,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     csrf,
     title: 'Cetak Label',
     actions: logKit ? logKit.button : '',
-    style: `${logKit ? logKit.style : ''}${board ? board.style : ''}`,
+    style: `${logKit ? logKit.style : ''}${board ? board.style : ''}${stock ? stock.style : ''}`,
     range, errors, shopeeShop, generatedAt,
     view: 'labels',
     hideRangeControls: true, scope: 'semua yang perlu dicetak',
@@ -7791,8 +8064,8 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
               : ''}
           </div>
           <input type="hidden" name="view" value="labels">
-        </form>${logKit ? logKit.dialog : ''}${board ? board.dialog : ''}`,
-    script: `${logKit ? logKit.script : ''}${board ? board.script : ''}${printScript}
+        </form>${logKit ? logKit.dialog : ''}${board ? board.dialog : ''}${stock ? stock.dialog : ''}`,
+    script: `${logKit ? logKit.script : ''}${board ? board.script : ''}${stock ? stock.script : ''}${printScript}
 (function () {
   var form = document.getElementById('lbform');
   var counter = document.getElementById('n');
@@ -7806,7 +8079,9 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
 
   // Only what a search has left on screen counts. A disabled row is not printed, so
   // counting it would promise a sheet that is not coming - nor is one handed to a packer.
-  function visible() { return picks.filter(function (p) { return !p.disabled && !p.hasAttribute('data-held') && !p.hasAttribute('data-short'); }); }
+  // A short row counts when ticked: the stock check below decides, with the person, which
+  // of the ticked parcels the shelf can fill.
+  function visible() { return picks.filter(function (p) { return !p.disabled && !p.hasAttribute('data-held'); }); }
   // What "Pilih semua" reaches: every row on screen, the handed-out and short ones too -
   // they are ticked for Tugaskan/Lepas, and the submit below keeps them out of a print.
   function tickable() { return picks.filter(function (p) { return !p.disabled; }); }
@@ -7834,13 +8109,37 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
       return 'Lepas ' + on.length + ' pesanan dari ' + (names.length === 1 ? names[0] : 'packernya') + '?';
     }
     if (action !== 'label_assign') return '';
-    var n = picks.filter(function (p) { return p.checked && !p.disabled && !p.hasAttribute('data-short'); }).length;
+    var n = picks.filter(function (p) { return p.checked && !p.disabled; }).length;
     // Nothing to hand out: the server says so, no question needed.
     if (!n) return '';
     var sel = document.getElementById('lb-packer');
     var who = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : 'packer';
     return 'Tugaskan ' + n + ' pesanan ke ' + who + '?';
   }
+  /*
+   * Enough on the shelf? Asked before Tugaskan and Cetak, first of everything: the stock
+   * check (stockCheckKit) either lets the action through untouched or has the person pick
+   * which ticked parcels go ahead. Its dialog names the count and the packer, so after it
+   * the usual "Tugaskan n pesanan ke ...?" is not asked twice.
+   */
+  var stockPassed = false;
+  form.addEventListener('submit', function (e) {
+    var b = e.submitter;
+    if (stockPassed || !b || !window.treelogyStockCheck) return;
+    var mode = b.getAttribute('value') === 'label_assign' ? 'assign' : (b.id === 'go' ? 'print' : '');
+    if (!mode) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    var sel = document.getElementById('lb-packer');
+    var who = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : '';
+    window.treelogyStockCheck(mode, who).then(function (r) {
+      if (!r.ok) return;
+      stockPassed = true;
+      if (r.asked && mode === 'assign') assignAsked = true;
+      if (form.requestSubmit) form.requestSubmit(b); else b.click();
+      stockPassed = false; assignAsked = false;
+    });
+  }, true);
+
   form.addEventListener('submit', function (e) {
     var b = e.submitter;
     if (!b || assignAsked || !window.treelogyConfirm) return;
@@ -7855,14 +8154,12 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     });
   }, true);
 
-  // A parcel the shelf cannot fill rides along with nothing but Lepas.
+  // A parcel handed to somebody else rides along with Tugaskan and Lepas only.
   form.addEventListener('submit', function (e) {
     var action = e.submitter && e.submitter.getAttribute('value');
-    if (action === 'label_unassign' || (e.submitter && e.submitter.name === 'unassign')) return;
+    if (action === 'label_unassign' || action === 'label_assign' || (e.submitter && e.submitter.name === 'unassign')) return;
     var held = picks.filter(function (p) {
-      if (!p.checked || p.disabled) return false;
-      if (p.hasAttribute('data-short')) return true;
-      return action !== 'label_assign' && p.hasAttribute('data-held');
+      return p.checked && !p.disabled && p.hasAttribute('data-held');
     });
     held.forEach(function (p) { p.disabled = true; });
     setTimeout(function () { held.forEach(function (p) { p.disabled = false; }); }, 0);
