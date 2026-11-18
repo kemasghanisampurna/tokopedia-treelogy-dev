@@ -87,16 +87,16 @@ test('a parcel the shelf cannot fill cannot be printed, and says what is missing
   const code = Object.keys(recipeOf('OMC-90-001'))[0];
   const shelf = { items: { [code]: { name: 'Organic Moringa Capsules 90', qty: 1 } }, orders: {}, recipes: {} };
   const o = order('#1', 'Wiwiek');                                   // 2 x OMC-90-001
-  assert.deepEqual(shortagesFor(shelf, o), [{ code, name: 'Organic Moringa Capsules 90', need: 2, have: 1 }]);
-  assert.equal(shortageText(shortagesFor(shelf, o)), 'Stok di rak kurang: Organic Moringa Capsules 90 (perlu 2, ada 1)');
+  assert.deepEqual(shortagesFor(shelf, o), [{ code, name: 'Moringa Capsules 90 caps', need: 2, have: 1 }]);
+  assert.equal(shortageText(shortagesFor(shelf, o)), 'Stok di rak kurang: Moringa Capsules 90 caps (perlu 2, ada 1)');
   assert.deepEqual(shortagesFor({ ...shelf, items: { [code]: { name: 'x', qty: 5 } } }, o), []);
   assert.deepEqual(shortagesFor({ ...shelf, orders: { 'shopify|#1': { picked: 1 } } }, o), [], 'already taken off the shelf');
-  assert.equal(shortageText(shortagesFor({ ...shelf, items: { [code]: { name: 'C90', qty: -143 } } }, o)), 'Stok di rak kurang: C90 (perlu 2, ada 0)');
+  assert.equal(shortageText(shortagesFor({ ...shelf, items: { [code]: { name: 'C90', qty: -143 } } }, o)), 'Stok di rak kurang: Moringa Capsules 90 caps (perlu 2, ada 0)');
   const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [o], assignments, packers: [packer], shelf });
   assert.match(html, /class="pq__row is-short"/);
   assert.match(html, /data-print="shopify:#1" disabled/);
   assert.match(html, /Stok kosong/);
-  assert.match(html, /pq__short" role="note">.*Stok di rak kurang: Organic Moringa Capsules 90 \(perlu 2, ada 1\)/s);
+  assert.match(html, /pq__short" role="note">.*Stok di rak kurang: Moringa Capsules 90 caps \(perlu 2, ada 1\)/s);
   const fine = renderLabels({ ...base, user: packer, isPacker: true, orders: [o], assignments, packers: [packer], shelf: { ...shelf, items: { [code]: { name: 'x', qty: 9 } } } });
   assert.doesNotMatch(fine, /data-print="shopify:#1" disabled/);
   // The page keeps judging after it is drawn: each row carries what it needs, the note
@@ -108,7 +108,7 @@ test('a parcel the shelf cannot fill cannot be printed, and says what is missing
   for (const js of scripts) assert.doesNotThrow(() => new Function(js), 'page script parses');
   const { shelfPulse } = await import('../src/warehouse-reserve.js');
   const pulse = shelfPulse(shelf);
-  assert.deepEqual(pulse.items, { [code]: { q: 1, n: 'Organic Moringa Capsules 90' } });
+  assert.deepEqual(pulse.items, { [code]: { q: 1, n: 'Moringa Capsules 90 caps' } });
 });
 
 test('the packer page has two tabs: what is left to print, and what the printer produced', () => {
@@ -205,7 +205,7 @@ test('goods missing from the shelf stop the parcel for everyone: no print, no ha
   const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W'), order('#2', 'S')], assignments: null, packers: [packer], shelf });
   assert.match(html, /value="shopify:#2"[^>]*data-short="1"/);
   assert.doesNotMatch(html, /value="shopify:#2" checked/);
-  assert.match(html, /lb-short">.*Stok di rak kurang: Organic Moringa Capsules 90 \(perlu 2, ada 0\)/s);
+  assert.match(html, /lb-short">.*Stok di rak kurang: Moringa Capsules 90 caps \(perlu 2, ada 0\)/s);
   assert.match(html, /Cetak <span id="n">0<\/span> label/);
   const fs = await import('node:fs');
   const api = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
@@ -253,7 +253,7 @@ test('a parcel handed out earlier holds its goods: the next one on the page is s
   const all = { ...base, arranged: { '#1': 1, '#2': 1, '#3': 1 } };
   const html = renderLabels({ ...all, user: agas, orders, assignments: handed, packers: [packer], shelf, shelfTurn });
   assert.match(html, /value="shopify:#2"[^>]*data-short="1"/, 'nobody handed it, and the shelf is promised already');
-  assert.match(html, /Caps 90 \(perlu 2, 2 di rak sudah untuk pesanan lain\)/);
+  assert.match(html, /Moringa Capsules 90 caps \(perlu 2, 2 di rak sudah untuk pesanan lain\)/);
   const page = renderLabels({ ...all, user: packer, isPacker: true, orders: assignedTo(handed, orders, packer.email), assignments: handed, packers: [packer], shelf, shelfTurn });
   assert.match(page, /data-key="shopify:#3" data-state="short"/, 'the later hand-out waits');
   assert.match(page, /data-key="shopify:#1" data-state="todo"/, 'the earlier one prints');

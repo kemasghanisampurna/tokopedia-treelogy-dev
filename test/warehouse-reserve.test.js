@@ -67,8 +67,8 @@ test('the shelf is shared out in turn: handed-out parcels first, oldest hand-out
   assert.equal(short('#4'), true, 'the fourth hand-out does not');
   assert.equal(short('#5'), true, 'nor a parcel nobody has been handed yet');
   assert.equal(short('#9'), false, 'one already taken off the shelf needs nothing');
-  assert.deepEqual(turn.get('shopify:#4'), [{ code: caps90, name: 'Caps 90', need: 1, have: 0, shelf: 3 }]);
-  assert.equal(shortageText(turn.get('shopify:#4')), 'Stok di rak kurang: Caps 90 (perlu 1, 3 di rak sudah untuk pesanan lain)');
+  assert.deepEqual(turn.get('shopify:#4'), [{ code: caps90, name: 'Moringa Capsules 90 caps', need: 1, have: 0, shelf: 3 }]);
+  assert.equal(shortageText(turn.get('shopify:#4')), 'Stok di rak kurang: Moringa Capsules 90 caps (perlu 1, 3 di rak sudah untuk pesanan lain)');
 
   // Handing out: the ticked ones queue behind everything already handed out.
   const fresh = shortagesInTurn(doc, [one('#7'), one('#8')], { orders: { 'shopify:#1': { at: 1 } } }, { fresh: ['shopify:#7', 'shopify:#8'] });
@@ -81,5 +81,12 @@ test('the shelf is shared out in turn: handed-out parcels first, oldest hand-out
   const big = order('#20', [{ sku: 'OMC-90-001', qty: 3 }]);
   const mix = shortagesInTurn(doc, [one('#21'), big, one('#22')]);
   assert.deepEqual([mix.get('shopify:#21').length, mix.get('shopify:#20').length > 0, mix.get('shopify:#22').length], [0, true, 0]);
-  assert.equal(shortageText(mix.get('shopify:#20')), 'Stok di rak kurang: Caps 90 (perlu 3, sisa 2 - 1 dari 3 di rak sudah untuk pesanan lain)');
+  assert.equal(shortageText(mix.get('shopify:#20')), 'Stok di rak kurang: Moringa Capsules 90 caps (perlu 3, sisa 2 - 1 dari 3 di rak sudah untuk pesanan lain)');
+});
+
+test('a shelf item reads under its catalogue name; one no single product stands for keeps its own', async () => {
+  const { shelfItemName } = await import('../src/warehouse.js');
+  const doc = { items: { 'M-087': { name: 'Sample Organic Moringa Oil 3 mL' }, 'M-999': { name: 'Kardus kecil' } }, recipes: {} };
+  assert.equal(shelfItemName(doc, 'M-087'), 'Moringa Seed Oil 3 ml');
+  assert.equal(shelfItemName(doc, 'M-999'), 'Kardus kecil');
 });

@@ -1,8 +1,8 @@
 import { channelMeta } from './omni.js';
 import { PREFIXES } from './mekari/prefix.js';
 import { labelReadiness } from './labels.js';
-import { findProduct, allProducts, isBundle } from './master.js';
-import { recipeOf } from './warehouse.js';
+import { findProduct } from './master.js';
+export { shelfNames } from './warehouse.js';
 
 /**
  * The hand-out board: every parcel given to a packer, on one side until its label has
@@ -32,25 +32,6 @@ export function boardTag(channel, source = null) {
   const meta = channelMeta(channel);
   const label = channel === 'manual' && source ? PREFIXES[source]?.label : null;
   return { label: label ?? meta.label, accent: meta.accent };
-}
-
-/**
- * A shelf item under the name the Produk page gives it: M-087 "Sample Organic Moringa Oil
- * 3 mL" is the catalogue's "Moringa Seed Oil 3 ml" - the product whose one unit is exactly
- * one of that item. An item no single product stands for keeps the shelf's own name.
- *
- * @returns {Record<string, string>} code -> name
- */
-export function shelfNames(edited = {}) {
-  const out = {};
-  for (const product of allProducts()) {
-    if (isBundle(product)) continue;
-    const recipe = recipeOf(product.sku, edited);
-    const codes = recipe ? Object.keys(recipe) : [];
-    if (codes.length !== 1 || recipe[codes[0]] !== 1 || out[codes[0]]) continue;
-    out[codes[0]] = [product.name, product.variant].filter(Boolean).join(' ');
-  }
-  return out;
 }
 
 /** A product's picture by its SKU, its master SKU, or its first part (as the packer's sheet). */

@@ -1,4 +1,4 @@
-import { itemsForOrder, afterOpening } from './warehouse.js';
+import { itemsForOrder, afterOpening, shelfItemName } from './warehouse.js';
 
 /**
  * What the open orders have already claimed from the shelf.
@@ -69,7 +69,7 @@ export function shortagesFor(doc, order) {
     const item = doc.items[code];
     if (!item) continue;
     const have = Number(item.qty) || 0;
-    if (have < need) short.push({ code, name: item.name ?? code, need, have });
+    if (have < need) short.push({ code, name: shelfItemName(doc, code), need, have });
   }
   return short;
 }
@@ -133,7 +133,7 @@ export function shortagesInTurn(doc, orders, assignments = null, { fresh = [] } 
     for (const [code, qty] of Object.entries(need)) {
       const item = doc.items[code];
       if (!item) continue;
-      if (have(code) < qty) short.push({ code, name: item.name ?? code, need: qty, have: have(code), shelf: Number(item.qty) || 0 });
+      if (have(code) < qty) short.push({ code, name: shelfItemName(doc, code), need: qty, have: have(code), shelf: Number(item.qty) || 0 });
     }
     if (!short.length) for (const [code, qty] of Object.entries(need)) if (doc.items[code]) left[code] = have(code) - qty;
     out.set(keyOf(o), short);
@@ -144,7 +144,8 @@ export function shortagesInTurn(doc, orders, assignments = null, { fresh = [] } 
 /** The shelf as the packer page polls it: {code: {q, n}} - only what is needed to judge. */
 export function shelfPulse(doc) {
   const items = {};
-  for (const [code, item] of Object.entries(doc?.items ?? {})) items[code] = { q: Number(item?.qty) || 0, n: item?.name ?? code };
+  // Named as the Produk page names them, so the packer reads the same words everywhere.
+  for (const [code, item] of Object.entries(doc?.items ?? {})) items[code] = { q: Number(item?.qty) || 0, n: shelfItemName(doc, code) };
   return { at: Date.now(), items };
 }
 

@@ -1,4 +1,4 @@
-import { findProduct, isBundle } from './master.js';
+import { findProduct, isBundle, allProducts, onMasterChange } from './master.js';
 import { numberOrNull } from './numbers.js';
 
 /**
@@ -116,6 +116,39 @@ export const RECIPES = {
   'Travel-Pouch': { 'M-051': 1 },
   'Mystery-Gift': { 'M-087': 1 },
 };
+
+
+// Worked out once per catalogue and per set of recipes edited on the Stok page.
+const NO_EDITS = {};
+const NAMES = new WeakMap();
+let catalogueVersion = 0;
+onMasterChange(() => { catalogueVersion += 1; });
+
+/**
+ * A shelf item under the name the Produk page gives it: M-087 "Sample Organic Moringa Oil
+ * 3 mL" is the catalogue's "Moringa Seed Oil 3 ml" - the product whose one unit is exactly
+ * one of that item. An item no single product stands for keeps the shelf's own name.
+ *
+ * @returns {Record<string, string>} code -> name
+ */
+export function shelfNames(edited = {}) {
+  const key = edited && typeof edited === 'object' ? edited : NO_EDITS;
+  const hit = NAMES.get(key);
+  if (hit && hit.version === catalogueVersion) return hit.names;
+  const out = {};
+  for (const product of allProducts()) {
+    if (isBundle(product)) continue;
+    const recipe = recipeOf(product.sku, edited);
+    const codes = recipe ? Object.keys(recipe) : [];
+    if (codes.length !== 1 || recipe[codes[0]] !== 1 || out[codes[0]]) continue;
+    out[codes[0]] = [product.name, product.variant].filter(Boolean).join(' ');
+  }
+  NAMES.set(key, { version: catalogueVersion, names: out });
+  return out;
+}
+
+/** The name a person reads for a shelf item: the catalogue's, else the shelf's own. */
+export const shelfItemName = (doc, code) => shelfNames(doc?.recipes ?? {})[code] ?? doc?.items?.[code]?.name ?? code;
 
 /**
  * One unit of a product as warehouse items, resolving master bundles to their parts.
