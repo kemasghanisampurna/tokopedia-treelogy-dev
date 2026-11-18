@@ -324,3 +324,14 @@ test('the label table has its own column for who a parcel was handed to', () => 
   assert.match(html, /<td class="nowrap">W<\/td>\s*<td class="nowrap"><span class="lb-to" title="Ditugaskan ke Budi"><span class="lb-to__a" aria-hidden="true">B<\/span>Budi<button class="lb-free"/);
   assert.match(html, /<td class="nowrap">S<\/td>\s*<td class="nowrap"><span class="lb-none">Belum<\/span><\/td>/);
 });
+
+test('a yes to "Tugaskan n pesanan ke ...?" sends the hand-out, it does not ask again', () => {
+  // The stock check runs first; the question after it. Its yes resubmits the form, and the
+  // stock check let that through only once the fix was in - before, it checked again and
+  // the same question came back for ever (18 Nov).
+  const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W')], assignments: null, packers: [packer], shelf: { items: {}, orders: {}, recipes: {} } });
+  assert.match(html, /if \(stockPassed \|\| assignAsked \|\| !b \|\| !window\.treelogyStockCheck\) return;/);
+  const stock = html.indexOf('var stockPassed = false;');
+  const ask = html.indexOf('window.treelogyConfirm(question)');
+  assert.ok(stock > 0 && ask > stock, 'the stock check is bound before the question');
+});

@@ -8186,7 +8186,10 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   var stockPassed = false;
   form.addEventListener('submit', function (e) {
     var b = e.submitter;
-    if (stockPassed || !b || !window.treelogyStockCheck) return;
+    // assignAsked: the person has just said yes to "Tugaskan n pesanan ke ...?", which is
+    // only ever asked after this check passed. Checking again here sent the submit round
+    // once more and asked the same question a second time (18 Nov).
+    if (stockPassed || assignAsked || !b || !window.treelogyStockCheck) return;
     var mode = b.getAttribute('value') === 'label_assign' ? 'assign' : (b.id === 'go' ? 'print' : '');
     if (!mode) return;
     e.preventDefault(); e.stopImmediatePropagation();
