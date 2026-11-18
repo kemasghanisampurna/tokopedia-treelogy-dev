@@ -181,8 +181,10 @@ export default async function handler(req, res) {
     // or the order would ask to be printed again tomorrow.
     let unrecorded = '';
     const printedKeys = [...(sheet.printed ?? []), ...ahead.map((o) => `${o.channel}:${o.id}`)];
-    // To a phone's printer: nothing is on record until the phone says it printed.
-    const deferred = form.get('format') === 'tspl';
+    // To a phone's printer or the bench: nothing is on record until the printer's side
+    // says it printed - the phone after its last byte, the bench agent when its job is
+    // done. Queued is not printed: an agent that is off, or fails, prints nothing.
+    const deferred = form.get('format') === 'tspl' || form.get('format') === 'queue';
     if (printedKeys.length && !deferred) {
       await markPrinted(printedKeys, { by: user.email, sigs: sheet.sigs ?? {} }).catch((error) => {
         console.warn(`labels: gagal mencatat cetakan Shopify - ${error.message}`);
@@ -238,6 +240,7 @@ export default async function handler(req, res) {
       const job = await enqueueJob({
         by: user.email, label: `${pages.length} label · ${user.name || user.email}`,
         orders: chosen.map((o) => `${o.channel}:${o.id}`), pages,
+        record: { by: user.email, name: user.name || user.email, role: user.role, keys: printedKeys, sigs: sheet.sigs ?? {}, failures: sheet.failures },
       });
       console.log(`labels: ${pages.length} halaman masuk antrian gudang (${job.id}) oleh ${user.email}`);
       res.statusCode = 200;
@@ -292,8 +295,37 @@ export default async function handler(req, res) {
  * the goods off the shelf and writes "dicetak" to the log; a failure is logged as
  * "gagal" and leaves the parcel where it was, waiting to be printed.
  */
+/**
+ * The bench agent's verdict on a queued job, put on record (api/print-agent.js). Only a
+ * job the agent reports done marks its labels printed and counts the goods off the
+ * shelf; a failed one is logged as "gagal" and its parcels stay to print.
+ */
+export async function recordBenchJob(job, { ok, error = null, ip = null } = {}) {
+  const r = job?.record;
+  if (!r || !Array.isArray(r.keys) || !r.keys.length) return;
+  const actor = { email: r.by, name: r.name, role: r.role };
+  const reason = String(error ?? '').slice(0, 200) || 'printer gudang tidak mencetak';
+  if (ok) {
+    await markPrinted(r.keys, { by: r.by, sigs: r.sigs ?? {} });
+    void warehouseSweep();
+  }
+  console.log(`labels: printer gudang ${ok ? 'mencetak' : 'gagal mencetak'} ${r.keys.length} label (${job.id})${ok ? '' : ` - ${reason}`}`);
+  await recordActivity({
+    actor, ip, menu: 'labels', action: 'print_labels', verb: 'print',
+    target: `${r.keys.length} pesanan`,
+    summary: ok ? `Mencetak ${r.keys.length} label di printer gudang` : `Gagal mencetak ${r.keys.length} label di printer gudang: ${reason}`,
+    changes: [
+      ...r.keys.map((k) => ({ field: k.replace(':', ' '), to: ok ? 'dicetak' : 'gagal', ...(ok ? {} : { note: reason }) })),
+      ...(r.failures ?? []).map((f) => ({ field: `${f.channel} ${f.id}`, to: 'gagal', note: f.reason })),
+    ],
+  }).catch(() => {});
+}
+
 async function confirmPrint(form, user, req, res, fail) {
   const ok = form.get('ok') === '1';
+  // The printer itself said it finished (its status, asked after the last byte), or only
+  // the delivery is known - a printer that does not answer the status question.
+  const verified = form.get('verified') === '1';
   const reason = String(form.get('error') ?? '').slice(0, 200) || 'printer tidak mencetak';
   const ticket = tickets.get(String(form.get('ticket') ?? ''));
   if (ticket && ticket.by !== user.email) { fail(403, 'Bukan cetakanmu', 'Tiket cetak ini milik orang lain.'); return; }
@@ -318,7 +350,7 @@ async function confirmPrint(form, user, req, res, fail) {
   await recordActivity({
     actor: user, ip: callerIp(req), menu: 'labels', action: 'print_labels', verb: 'print',
     target: `${keys.length} pesanan`,
-    summary: ok ? `Mencetak ${keys.length} label ke printer HP` : `Gagal mencetak ${keys.length} label ke printer HP: ${reason}`,
+    summary: ok ? `Mencetak ${keys.length} label ke printer HP${verified ? ' (dikonfirmasi printer)' : ' (terkirim, belum dikonfirmasi printer)'}` : `Gagal mencetak ${keys.length} label ke printer HP: ${reason}`,
     changes: [
       ...keys.map((k) => ({ field: k.replace(':', ' '), to: ok ? 'dicetak' : 'gagal', ...(ok ? {} : { note: reason }) })),
       ...[...failed].map((k) => ({ field: k.replace(':', ' '), to: 'gagal', note: (ticket.failures.find((f) => `${f.channel}:${f.id}` === k) || {}).reason })),

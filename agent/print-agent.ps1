@@ -11,7 +11,7 @@
 param([string]$ConfigPath = (Join-Path $env:LOCALAPPDATA 'Treelogy\print-agent.json'))
 
 $ErrorActionPreference = 'Stop'
-$Version = '1'
+$Version = '2'
 $cfg = Get-Content -Path $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $server = ([string]$cfg.server).TrimEnd('/')
 $token = [string]$cfg.token
@@ -81,6 +81,32 @@ namespace Treelogy {
 '@
 }
 
+# Handed to the spooler is not printed (18 Nov: only real prints count). After the
+# bytes are in, wait until Windows has sent the job on and it has left the queue - and
+# fail if the printer reports no paper, an open door, a jam or being offline, or the job
+# sits in an error state. Only then is the job reported done.
+function Wait-Printed([string]$printerName, [int]$timeoutSec = 90) {
+  $until = (Get-Date).AddSeconds($timeoutSec)
+  $esc = $printerName.Replace("'", "''")
+  while ((Get-Date) -lt $until) {
+    $p = Get-CimInstance Win32_Printer -Filter ("Name='{0}'" -f $esc) -ErrorAction SilentlyContinue
+    if ($p) {
+      if ($p.WorkOffline) { throw 'printer offline di Windows' }
+      switch ([int]$p.DetectedErrorState) {
+        4 { throw 'kertas label habis' }
+        7 { throw 'tutup printer terbuka' }
+        8 { throw 'kertas macet di printer' }
+        9 { throw 'printer offline' }
+      }
+    }
+    $jobs = @(Get-CimInstance Win32_PrintJob -ErrorAction SilentlyContinue | Where-Object { $_.Name -like ($printerName + ',*') -and $_.Document -eq 'Treelogy label' })
+    if ($jobs.Count -eq 0) { return }
+    foreach ($j in $jobs) { if ("$($j.JobStatus) $($j.Status)" -match 'Error|Offline|Paper|Blocked|Intervention|Deleting') { throw ('printer: ' + $j.JobStatus) } }
+    Start-Sleep -Milliseconds 700
+  }
+  throw "printer belum selesai mencetak setelah $timeoutSec detik"
+}
+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $headers = @{ Authorization = "Bearer $token"; 'X-Agent-Name' = $name; 'X-Agent-Printer' = $printer; 'X-Agent-Version' = $Version }
 
@@ -101,6 +127,7 @@ while ($true) {
       $stream = New-Object System.IO.MemoryStream
       foreach ($page in $pages) { $bytes = [Convert]::FromBase64String($page); $stream.Write($bytes, 0, $bytes.Length) }
       [Treelogy.RawPrinter]::Send($printer, $stream.ToArray())
+      Wait-Printed $printer
     } catch {
       $ok = $false; $err = $_.Exception.Message
       Write-Log ('GAGAL cetak {0}: {1}' -f $job.id, $err)

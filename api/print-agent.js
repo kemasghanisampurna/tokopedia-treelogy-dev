@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { takeJob, finishJob, touchAgent, queueBell } from '../src/print-queue.js';
+import { recordBenchJob } from './labels.js';
 
 /**
  * The bench agent's door.
@@ -80,7 +81,9 @@ export default async function handler(req, res) {
     const id = String(body.id ?? '');
     if (!/^[0-9a-f-]{4,40}$/.test(id)) { json(400, { error: 'id pekerjaan tidak valid' }); return; }
     const status = body.status === 'done' ? 'done' : 'failed';
-    await finishJob(id, { status, error: body.error });
+    const finished = await finishJob(id, { status, error: body.error });
+    // Printed only now, on the agent's word - not when the job was queued.
+    if (finished) await recordBenchJob(finished, { ok: status === 'done', error: body.error }).catch((error) => console.warn(`print-agent: gagal mencatat ${id} - ${error.message}`));
     json(200, { ok: true });
     return;
   }

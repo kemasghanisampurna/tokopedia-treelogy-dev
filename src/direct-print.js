@@ -357,6 +357,7 @@ export function directPrintScript(printer) {
       var job = printing;
       // Put on record only what the printer took: the server is told the verdict, and
       // a row turns "dicetak" only once that is written down.
+      if (job) job.verified = !!m.verified;
       var verdict = job ? confirmPrint(job, !m.error, m.error) : Promise.resolve(null);
       if (m.error) {
         busy = false; progressOff(); printing = null;
@@ -390,7 +391,7 @@ export function directPrintScript(printer) {
   async function confirmPrint(job, ok, error) {
     var body = new URLSearchParams();
     body.set('csrf', form ? (form.elements.csrf && form.elements.csrf.value) || '' : '');
-    body.set('format', 'confirm'); body.set('ticket', job.ticket || ''); body.set('ok', ok ? '1' : '0');
+    body.set('format', 'confirm'); body.set('ticket', job.ticket || ''); body.set('ok', ok ? '1' : '0'); body.set('verified', job.verified ? '1' : '0');
     if (error) body.set('error', String(error).slice(0, 200));
     job.orders.forEach(function (o) { body.append('order', o); });
     for (var t = 0; t < 3; t++) {
@@ -648,7 +649,7 @@ export function hostScript(printer) {
         if (known.properties.writeWithoutResponse || known.properties.write) ch = known;
       } catch (e) { ch = null; }
     }
-    if (ch) { store.set('dp.device', dev.id); prefs.device = dev.id; if (dev.name) store.set('dp.name', dev.name); say('Siap · ' + (dev.name || printer.model), 'is-on'); ready(); return; }
+    if (ch) { await findStatus(); store.set('dp.device', dev.id); prefs.device = dev.id; if (dev.name) store.set('dp.name', dev.name); say('Siap · ' + (dev.name || printer.model), 'is-on'); ready(); return; }
     // Listing every service needs no argument in Chrome; implementations that insist on
     // one are asked for each known printer service in turn.
     var services = [];
@@ -664,6 +665,7 @@ export function hostScript(printer) {
       }
     }
     if (!ch) throw new Error('printer tersambung tapi tidak ada jalur tulis Bluetooth (BLE) yang dikenal');
+    await findStatus();
     // This printer is now this phone's: the next opening reaches for it, and only it.
     store.set('dp.device', dev.id); prefs.device = dev.id; if (dev.name) store.set('dp.name', dev.name);
     try { prefs.svc = ch.service.uuid; prefs.chr = ch.uuid; store.set('dp.svc', prefs.svc); store.set('dp.chr', prefs.chr); } catch (e) {}
@@ -880,7 +882,64 @@ export function hostScript(printer) {
     // Honest about the end, too: a link that dropped while the last packets were in
     // flight did not print them, whatever the writes said.
     if (device && device.gatt && !device.gatt.connected) throw new Error('sambungan ke printer terputus sebelum label selesai terkirim');
+    lastVerified = await printerFinished();
     return jobs.length;
+  }
+
+  /*
+   * The printer's own word (18 Nov: "only real prints count"). Bytes delivered over a
+   * link that held is not paper out of the printer - the roll may be empty, the cover
+   * open, the label jammed. So the printer is asked its status (TSPL ESC ! ?) until it
+   * says it has finished: paper out, jam or an open cover is a failure and nothing is
+   * recorded. A printer that does not answer the question cannot say either way; then
+   * delivery is all there is, and the record says it was not confirmed by the printer.
+   *
+   * Status bits: 0x01 head open, 0x02 paper jam, 0x04 paper out, 0x10 paused,
+   * 0x20 printing, 0x40 cover open, 0x80 other error.
+   */
+  var nt = null, ntOn = false, statusWait = null, lastVerified = false;
+  async function findStatus() {
+    nt = null; ntOn = false;
+    try {
+      var chars = await ch.service.getCharacteristics();
+      for (var i = 0; i < chars.length; i++) if (chars[i].properties.notify || chars[i].properties.indicate) { nt = chars[i]; break; }
+    } catch (e) { nt = null; }
+  }
+  async function printerStatus(ms) {
+    if (!nt) return null;
+    try {
+      if (!ntOn) {
+        nt.addEventListener('characteristicvaluechanged', function (ev) {
+          var v = ev.target.value;
+          if (statusWait && v && v.byteLength) { var w = statusWait; statusWait = null; w(v.getUint8(0)); }
+        });
+        await nt.startNotifications(); ntOn = true;
+      }
+    } catch (e) { nt = null; return null; }
+    var answer = new Promise(function (resolve) {
+      statusWait = resolve;
+      setTimeout(function () { if (statusWait === resolve) { statusWait = null; resolve(null); } }, ms);
+    });
+    try { await writeChunk(new Uint8Array([0x1b, 0x21, 0x3f]), plan().resp); } catch (e) { statusWait = null; return null; }
+    return answer;
+  }
+  async function printerFinished() {
+    var s = await printerStatus(1500);
+    if (s === null) return false;
+    var until = Date.now() + 30000;
+    for (;;) {
+      if (s & 0x04) throw new Error('kertas label habis - label belum tercetak');
+      if (s & 0x02) throw new Error('kertas macet di printer - label belum tercetak');
+      if (s & 0x41) throw new Error('tutup printer terbuka - label belum tercetak');
+      if (s & 0x80) throw new Error('printer melaporkan gangguan - label belum tercetak');
+      if (!(s & 0x30)) return true;
+      if (Date.now() > until) throw new Error('printer belum selesai mencetak setelah 30 detik - cek printernya');
+      progress(1, 'Printer sedang mencetak…');
+      await sleep(500);
+      s = await printerStatus(1500);
+      // Stopped answering part-way: it said nothing wrong, but not "done" either.
+      if (s === null) return false;
+    }
   }
   window.addEventListener('message', async function (e) {
     if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
@@ -896,8 +955,8 @@ export function hostScript(printer) {
       try {
         progress(0, 'Mengirim ke printer…');
         var pages = await print(m.groups || [], m.tspl || null);
-        say('Siap · ' + (device.name || printer.model) + ' · ' + pages + ' label terkirim', 'is-on');
-        reply({ type: 'dp:done', pages: pages, id: m.id || null });
+        say('Siap · ' + (device.name || printer.model) + ' · ' + pages + (lastVerified ? ' label tercetak' : ' label terkirim'), 'is-on');
+        reply({ type: 'dp:done', pages: pages, verified: lastVerified, id: m.id || null });
       } catch (err) {
         say('Gagal: ' + err.message, 'is-off');
         reply({ type: 'dp:done', error: err.message, id: m.id || null });

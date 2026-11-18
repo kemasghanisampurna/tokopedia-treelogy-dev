@@ -91,6 +91,19 @@ test('the chooser lists printers only, the whole room only on request, and Tes s
   assert.doesNotMatch(page, /id="all"/);
 });
 
+test('a phone print counts only when the printer says it finished: paper out, jam or an open cover is a failure', () => {
+  const script = hostScript({ model: 'x', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 });
+  assert.match(script, /writeChunk\(new Uint8Array\(\[0x1b, 0x21, 0x3f\]\), plan\(\)\.resp\)/, 'asks the printer its status (TSPL ESC ! ?)');
+  assert.match(script, /if \(s & 0x04\) throw new Error\('kertas label habis - label belum tercetak'\);/);
+  assert.match(script, /if \(s & 0x02\) throw new Error\('kertas macet di printer - label belum tercetak'\);/);
+  assert.match(script, /if \(s & 0x41\) throw new Error\('tutup printer terbuka - label belum tercetak'\);/);
+  assert.match(script, /if \(!\(s & 0x30\)\) return true;/, 'done only once it is neither printing nor paused');
+  assert.match(script, /lastVerified = await printerFinished\(\);\s*return jobs\.length;/, 'asked after the last byte, before the page is told');
+  assert.match(script, /reply\(\{ type: 'dp:done', pages: pages, verified: lastVerified/);
+  assert.match(directPrintScript({ model: 'x' }), /body\.set\('verified', job\.verified \? '1' : '0'\)/);
+  new Function(script);
+});
+
 test('an open printer bar reloads itself once when the page in its frame comes from a newer server', async () => {
   const { DP_BUILD, directPrintEnterScript } = await import('../src/direct-print.js');
   assert.ok(directPrintEnterScript().startsWith(`window.__dpBuild=${JSON.stringify(DP_BUILD)};`));

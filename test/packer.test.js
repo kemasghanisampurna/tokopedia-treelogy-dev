@@ -140,7 +140,7 @@ test('a print to the phone is put on record only when the phone confirms it', as
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
   // The tspl road hands out a ticket and records nothing; confirm ok=1 marks, ok=0 logs a failure.
-  assert.match(src, /const deferred = form\.get\('format'\) === 'tspl';\s*if \(printedKeys\.length && !deferred\)/);
+  assert.match(src, /const deferred = form\.get\('format'\) === 'tspl' \|\| form\.get\('format'\) === 'queue';\s*if \(printedKeys\.length && !deferred\)/);
   assert.match(src, /if \(!deferred\) await recordActivity/);
   assert.match(src, /if \(ok\) \{\s*await markPrinted/);
   const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments, packers: [packer] });
@@ -361,4 +361,18 @@ test('a packer prints each parcel once: the server refuses a second print, and t
   const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer] });
   assert.match(page, /if \(at && row !== busyRow\) moveToDone\(row, at\);/);
   assert.match(page, /if \(shelfDone && shelfDone\[key\]\) \{/, 'checked again right before a press');
+});
+
+test('a bench print is put on record when the agent reports it done, not when it is queued', async () => {
+  const { applyEnqueue, applyFinish } = await import('../src/print-queue.js');
+  const record = { by: 'agas@x', name: 'Agas', keys: ['shopify:#1'], sigs: {} };
+  const { doc, job } = applyEnqueue(null, { by: 'agas@x', orders: ['shopify:#1'], pages: ['x'], record });
+  assert.deepEqual(job.record, record, 'the queue keeps what to record');
+  assert.equal(applyFinish(doc, job.id, { status: 'failed', error: 'kertas habis' }).jobs[0].status, 'failed');
+  const fs = await import('node:fs');
+  const labels = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
+  assert.match(labels, /const deferred = form\.get\('format'\) === 'tspl' \|\| form\.get\('format'\) === 'queue';/, 'queued is not printed');
+  assert.match(labels, /export async function recordBenchJob\(job, \{ ok, error = null, ip = null \} = \{\}\) \{[\s\S]*?if \(ok\) \{\s*await markPrinted\(r\.keys/);
+  const agent = fs.readFileSync(new URL('../api/print-agent.js', import.meta.url), 'utf8');
+  assert.match(agent, /const finished = await finishJob\(id, \{ status, error: body\.error \}\);\s*\/\/[^\n]*\n\s*if \(finished\) await recordBenchJob\(finished, \{ ok: status === 'done'/);
 });

@@ -6669,6 +6669,7 @@ const PACKER_SCRIPT = `
           fail(p.row, m.error + '. Label belum tercetak, pesanan tetap di Belum dicetak.');
           return;
         }
+        p.verified = !!m.verified;
         record(p);
       }
     });
@@ -6818,7 +6819,7 @@ const PACKER_SCRIPT = `
   }
   // The printer's verdict, put on record. Only a yes marks the label printed.
   async function confirmPrint(p, ok, error) {
-    var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), format: 'confirm', ticket: p.ticket || '', ok: ok ? '1' : '0', order: p.key });
+    var body = new URLSearchParams({ csrf: root.getAttribute('data-csrf'), format: 'confirm', ticket: p.ticket || '', ok: ok ? '1' : '0', order: p.key, verified: p.verified ? '1' : '0' });
     if (error) body.set('error', String(error).slice(0, 200));
     for (var t = 0; t < 3; t++) {
       try {

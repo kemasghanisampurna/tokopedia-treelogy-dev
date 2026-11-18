@@ -37,9 +37,10 @@ export function prune(doc, now = Date.now()) {
   return { ...d, jobs: [...open, ...finished].sort((a, b) => a.at - b.at) };
 }
 
-export function applyEnqueue(doc, { by, label, orders = [], pages = [] }, now = Date.now()) {
+export function applyEnqueue(doc, { by, label, orders = [], pages = [], record = null }, now = Date.now()) {
   const d = prune(doc, now);
-  const job = { id: randomUUID().slice(0, 8), at: now, by: by ?? null, label: label ?? '', orders, pages, status: 'pending' };
+  // `record`: what to put on record once the bench says the job printed - never before.
+  const job = { id: randomUUID().slice(0, 8), at: now, by: by ?? null, label: label ?? '', orders, pages, status: 'pending', ...(record ? { record } : {}) };
   return { doc: { ...d, jobs: [...d.jobs, job] }, job };
 }
 
@@ -105,8 +106,20 @@ export async function takeJob(agent) {
   return taken;
 }
 
+/**
+ * The bench's verdict on a job. Returns the job as it was finished, and whether this call
+ * is the one that finished it (a repeated report changes nothing and records nothing).
+ */
 export async function finishJob(id, result) {
-  await updateDoc(QUEUE_DOC, (current) => applyFinish(current, id, result), structuredClone(EMPTY));
+  let finished = null;
+  await updateDoc(QUEUE_DOC, (current) => {
+    const before = (current?.jobs ?? []).find((j) => j.id === id) ?? null;
+    const next = applyFinish(current, id, result);
+    const after = next.jobs.find((j) => j.id === id) ?? null;
+    finished = before && after && before.status !== 'done' && before.status !== after.status ? after : null;
+    return next;
+  }, structuredClone(EMPTY));
+  return finished;
 }
 
 /** The agent said hello and took nothing. */
