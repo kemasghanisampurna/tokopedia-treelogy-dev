@@ -76,20 +76,19 @@ test('the chooser lists printers only, the whole room only on request, and Tes s
   assert.match(script, /var filters = SERVICES\.map\(function \(u\) \{ return \{ services: \[u\] \}; \}\);/);
   assert.match(script, /"D100"/);
   assert.match(script, /return \{ filters: filters, optionalServices: SERVICES \};/);
-  // Every device only behind its own button, after the filtered list came up empty.
-  assert.equal((script.match(/acceptAllDevices: true/g) ?? []).length, 1);
-  assert.match(script, /if \(all\) return \{ acceptAllDevices: true, optionalServices: SERVICES \};/);
-  assert.match(script, /if \(e\.name === 'NotFoundError'\) \{ say\('Batal memilih printer\.', 'is-off'\); offerAll\(\); \}/);
-  assert.match(script, /Tampilkan semua perangkat/);
-  assert.match(script, /store\.set\('dp\.names'/, 'a printer picked from everything is remembered as a printer');
+  // Printers only - no list of every device in the room, not even behind a button.
+  assert.doesNotMatch(script, /acceptAllDevices/);
+  assert.doesNotMatch(script, /Semua perangkat|semua perangkat/);
+  // One phone, one printer: the last one it was connected to, by id and by name.
+  assert.match(script, /store\.set\('dp\.device', dev\.id\); prefs\.device = dev\.id; if \(dev\.name\) store\.set\('dp\.name', dev\.name\);/);
+  assert.match(script, /var mine = store\.get\('dp\.name'\);/, "the phone's own printer is always in its list");
+  assert.match(script, /filter\(function \(d\) \{ return d\.id === prefs\.device; \}\)/, 'on opening it reaches for that printer only');
   // Tes prints the printer's own Bluetooth name on it.
   assert.match(script, /ctx\.fillText\('PRINTER INI', 40, 40\);/);
   assert.match(script, /ctx\.fillText\(name, 40, 140\);/);
   const page = directPrintHostPage({ printer: { model: 'OKAY D100', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 }, go: '/api/dashboard?view=labels' });
   assert.match(page, /<button class="btn" type="button" id="test" hidden/);
-  // "Semua perangkat" is always on the bar, not only after a cancelled list.
-  assert.match(page, /<button class="leave" type="button" id="all"[^>]*>Semua perangkat<\/button>/);
-  assert.match(script, /allBtn\.addEventListener\('click', chooseAll\);/);
+  assert.doesNotMatch(page, /id="all"/);
 });
 
 test('an open printer bar reloads itself once when the page in its frame comes from a newer server', async () => {
