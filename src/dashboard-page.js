@@ -6997,11 +6997,12 @@ export function labelBoard({ packers = [] } = {}) {
 .lbw__sum .ico{width:12px; height:12px; transition:transform .22s var(--ease-out)}
 .lbw__sum[aria-expanded="true"]{color:var(--pk); border-color:color-mix(in srgb,var(--pk) 45%,transparent); background:color-mix(in srgb,var(--pk) 10%,transparent)}
 .lbw__sum[aria-expanded="true"] .ico{transform:rotate(90deg)}
-.lbw__goods{grid-column:1/-1; padding-top:.6rem; border-top:1px dashed var(--glass-line)}
+.lbw__goods{grid-column:2/-1; padding:.55rem .7rem .55rem .8rem; border-radius:11px; border:1px solid var(--glass-line);
+  background:color-mix(in srgb,var(--fg) 3%,transparent); box-shadow:inset 2px 0 0 color-mix(in srgb,var(--pk) 60%,transparent)}
 .lbw__goods[hidden]{display:none}
-.lbw__gl{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.5rem}
-.lbw__g{display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; column-gap:.65rem}
-.lbw__gimg{width:34px; height:34px; border-radius:9px; object-fit:cover; background:var(--panel-2); border:1px solid var(--glass-line)}
+.lbw__gl{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.45rem}
+.lbw__g{display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; column-gap:.6rem}
+.lbw__gimg{width:30px; height:30px; border-radius:8px; object-fit:cover; background:var(--panel-2); border:1px solid var(--glass-line)}
 .lbw__gn{min-width:0; display:flex; flex-direction:column; line-height:1.3}
 .lbw__gn b{font-size:.8rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .lbw__gn small{font-size:.7rem; color:var(--dim)}
@@ -7200,7 +7201,7 @@ export function labelBoard({ packers = [] } = {}) {
         var row = el('li', 'lbw__g');
         if (g.img) {
           var img = el('img', 'lbw__gimg');
-          img.alt = ''; img.width = 34; img.height = 34; img.loading = 'lazy'; img.decoding = 'async'; img.src = g.img;
+          img.alt = ''; img.width = 30; img.height = 30; img.loading = 'lazy'; img.decoding = 'async'; img.src = g.img;
           row.appendChild(img);
         } else row.appendChild(el('span', 'lbw__gimg'));
         var name = el('span', 'lbw__gn');
