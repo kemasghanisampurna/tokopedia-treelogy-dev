@@ -13,12 +13,14 @@ import { labelReadiness } from './labels.js';
  * packer's own page.
  *
  * Left: still to print, oldest hand-out first - the parcel waiting longest is the one
- * somebody should ask about. Right: printed, newest first, over a short window, so the
- * column reads as what is happening now rather than a history.
+ * somebody should ask about. Right: printed, newest first, over the last few days; the
+ * dialog narrows both to one day (today, yesterday, the day before).
  */
 
-export const BOARD_PRINTED_WINDOW_SEC = 24 * 3600;
-export const BOARD_PRINTED_MAX = 80;
+// Three calendar days back (the board filters today, yesterday and the day before), with
+// a day's margin so the oldest of them is whole whatever the hour.
+export const BOARD_PRINTED_WINDOW_SEC = 4 * 86400;
+export const BOARD_PRINTED_MAX = 400;
 
 const idOf = (key) => key.slice(key.indexOf(':') + 1);
 const channelOf = (key) => key.slice(0, key.indexOf(':'));

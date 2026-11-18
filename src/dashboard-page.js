@@ -6836,12 +6836,20 @@ const PACKER_SCRIPT = `
  * cards simply change place.
  */
 export function labelBoard({ packers = [] } = {}) {
-  const chips = packers.length > 1
-    ? `<div class="lbw__chips" role="group" aria-label="Saring per packer">
-        <button class="chip is-on" type="button" data-pk="">Semua</button>
-        ${packers.map((pk) => `<button class="chip" type="button" data-pk="${escape(pk.email)}">${escape(pk.name)}</button>`).join('')}
-      </div>`
-    : '';
+  const chips = `<div class="lbw__bar">
+        ${packers.length > 1 ? `<div class="lbw__chips" role="group" aria-label="Saring per packer">
+          <button class="chip is-on" type="button" data-pk="" aria-pressed="true">Semua</button>
+          ${packers.map((pk) => `<button class="chip" type="button" data-pk="${escape(pk.email)}" aria-pressed="false">${escape(pk.name)}</button>`).join('')}
+        </div>` : '<span></span>'}
+        <fieldset class="lbw__days">
+          <legend class="vh">Tampilkan hari</legend>
+          ${['Hari ini', 'Kemarin', 'Kemarin lusa'].map((word, n) => `<label class="lbw__day">
+            <input type="checkbox" value="${n}"${n === 0 ? ' checked' : ''}>
+            <span class="lbw__box" aria-hidden="true">${svg('check')}</span>
+            <span class="lbw__dw">${word}<small></small></span>
+          </label>`).join('')}
+        </fieldset>
+      </div>`;
   const button = `<button class="chip lbw-open" type="button" id="lbw-open" aria-haspopup="dialog">
           <span class="lbw-open__dot" aria-hidden="true"></span>Papan penugasan</button>`;
   const dialog = `
@@ -6866,15 +6874,16 @@ export function labelBoard({ packers = [] } = {}) {
             <span class="lbw__chs">Paling lama ditugaskan di atas</span>
           </div>
           <ol class="lbw__list" id="lbw-todo"></ol>
-          <p class="lbw__empty" id="lbw-todo-e" hidden>${svg('check2')}<span>Tidak ada tugas yang menunggu dicetak.</span></p>
+          <p class="lbw__empty" id="lbw-todo-e" hidden>${svg('check2')}<span data-empty>Tidak ada tugas yang menunggu dicetak.</span></p>
+          <button class="lbw__more" type="button" id="lbw-more" hidden></button>
         </section>
         <section class="lbw__col lbw__col--done" aria-labelledby="lbw-done-h">
           <div class="lbw__ch">
             <h3 class="lbw__cht" id="lbw-done-h"><span class="lbw__pip" aria-hidden="true"></span>Sudah dicetak <b class="lbw__n" id="lbw-done-n">0</b></h3>
-            <span class="lbw__chs">Terbaru di atas &middot; 24 jam</span>
+            <span class="lbw__chs">Terbaru di atas</span>
           </div>
           <ol class="lbw__list" id="lbw-done"></ol>
-          <p class="lbw__empty" id="lbw-done-e" hidden>${svg('printer')}<span>Belum ada label tugas yang dicetak dalam 24 jam.</span></p>
+          <p class="lbw__empty" id="lbw-done-e" hidden>${svg('printer')}<span data-empty>Belum ada label tugas yang dicetak.</span></p>
         </section>
       </div>
       <p class="vh" id="lbw-say" aria-live="polite"></p>
@@ -6905,7 +6914,27 @@ export function labelBoard({ packers = [] } = {}) {
 .lbw__x:hover{color:var(--fg); background:var(--glass-2)}
 .lbw__x .ico{width:18px; height:18px}
 .lbw__x:focus-visible,.lbw__chips .chip:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
-.lbw__chips{display:flex; flex-wrap:wrap; gap:.45rem; padding:0 1.5rem .9rem}
+.lbw__bar{display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; padding:0 1.5rem .9rem}
+.lbw__chips{display:flex; flex-wrap:wrap; gap:.45rem}
+.lbw__days{display:inline-flex; gap:.4rem; margin:0; padding:0; border:0; min-width:0}
+.lbw__day{position:relative; display:inline-flex; align-items:center; gap:.5rem; min-height:36px; padding:.35rem .75rem .35rem .55rem; cursor:pointer;
+  border-radius:11px; border:1px solid var(--glass-line); background:var(--glass); color:var(--muted);
+  font-size:.8rem; font-weight:600; white-space:nowrap; transition:color 160ms, background 160ms, border-color 160ms}
+.lbw__day input{position:absolute; opacity:0; width:1px; height:1px; pointer-events:none}
+.lbw__box{width:18px; height:18px; flex:none; display:grid; place-items:center; border-radius:6px;
+  border:1.5px solid color-mix(in srgb,var(--muted) 70%,transparent); color:transparent; transition:background 160ms, border-color 160ms, color 160ms}
+.lbw__box .ico{width:12px; height:12px; stroke-width:2.6}
+.lbw__dw{display:inline-flex; align-items:baseline; gap:.4rem}
+.lbw__day small{font-family:"Fira Code",ui-monospace,monospace; font-size:.68rem; font-weight:500; color:var(--dim)}
+.lbw__day:hover{color:var(--fg); border-color:color-mix(in srgb,var(--brand) 50%,transparent)}
+.lbw__day:has(input:checked){color:var(--fg); border-color:color-mix(in srgb,var(--brand) 55%,transparent);
+  background:color-mix(in srgb,var(--brand) 12%,transparent)}
+.lbw__day:has(input:checked) .lbw__box{background:var(--brand); border-color:var(--brand); color:var(--bg)}
+.lbw__day:has(input:focus-visible){outline:2px solid var(--brand); outline-offset:2px}
+.lbw__more{margin:0 .6rem .6rem; padding:.55rem .8rem; min-height:40px; border-radius:12px; cursor:pointer; font:inherit; font-size:.76rem; text-align:left;
+  color:var(--warn); background:color-mix(in srgb,var(--warn) 9%,transparent); border:1px dashed color-mix(in srgb,var(--warn) 40%,transparent)}
+.lbw__more:hover{background:color-mix(in srgb,var(--warn) 15%,transparent)}
+.lbw__more[hidden]{display:none}
 .lbw__cols{flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:1rem; padding:0 1.5rem 1.5rem}
 .lbw__col{--c:var(--act); min-height:0; display:flex; flex-direction:column; border-radius:18px;
   border:1px solid var(--glass-line); background:color-mix(in srgb,var(--panel-2) 55%,transparent)}
@@ -6956,7 +6985,11 @@ export function labelBoard({ packers = [] } = {}) {
   .lbw[open]{animation:lbwSheet 340ms cubic-bezier(.16,1,.3,1) both}
   .lbw__head{padding:calc(.9rem + env(safe-area-inset-top)) 1rem .6rem}
   .lbw__h{font-size:1.1rem}
-  .lbw__chips{padding:0 1rem .7rem; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch}
+  .lbw__bar{padding:0 1rem .7rem; flex-direction:column; align-items:stretch; gap:.55rem}
+  .lbw__chips{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch}
+  .lbw__days{display:grid; grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lbw__day{min-height:44px; padding:.35rem .5rem; gap:.4rem; font-size:.76rem}
+  .lbw__dw{flex-direction:column; gap:0; line-height:1.2; min-width:0}
   .lbw__chips::-webkit-scrollbar{display:none}
   .lbw__chips .chip{min-height:40px; flex:none}
   .lbw__seg{display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:0 1rem .7rem; padding:4px; border-radius:14px;
@@ -6980,7 +7013,7 @@ export function labelBoard({ packers = [] } = {}) {
 @media (prefers-reduced-motion:reduce){
   .lbw-open__dot,.lbw__live[data-state="on"]{animation:none}
   .lbw[open],.lbw[open]::backdrop,.lbw__card.is-landed,.lbw__n.is-bump{animation:none}
-  .lbw__tab{transition:none}
+  .lbw__tab,.lbw__day{transition:none}
 }`;
 
   const script = `
@@ -7007,6 +7040,9 @@ export function labelBoard({ packers = [] } = {}) {
   var nodes = {};      // key -> card element
   var side = {};       // key -> 'todo' | 'done', as last drawn
   var filter = '';
+  var days = [0];      // ticked: 0 today, 1 yesterday, 2 the day before - in the house clock
+  var DAY_WORDS = ['hari ini', 'kemarin', 'kemarin lusa'];
+  var more = document.getElementById('lbw-more');
   var last = null;     // the last snapshot, so a filter change redraws without waiting
   var timer = null;
   var busy = false;
@@ -7019,6 +7055,13 @@ export function labelBoard({ packers = [] } = {}) {
     var h = 0;
     for (var i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) >>> 0;
     return 'var(' + HUES[h % HUES.length] + ')';
+  }
+  // A calendar day in the house clock, as YYYY-MM-DD.
+  function dayOf(sec) {
+    return new Date(sec * 1000).toLocaleDateString('en-CA', { timeZone: ZONE });
+  }
+  function shortDate(sec) {
+    return new Date(sec * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: ZONE });
   }
   function clock(sec) {
     return new Date(sec * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: ZONE });
@@ -7151,8 +7194,26 @@ export function labelBoard({ packers = [] } = {}) {
   function draw(data) {
     last = data;
     var now = data.at;
-    var match = function (it) { return !filter || it.to === filter; };
-    var want = { todo: data.pending.filter(match), done: data.printed.filter(match) };
+    var picked = {};
+    days.forEach(function (n) { picked[dayOf(now - n * 86400)] = true; });
+    var mine = function (it) { return !filter || it.to === filter; };
+    var want = {
+      todo: data.pending.filter(function (it) { return mine(it) && picked[dayOf(it.assignedAt)]; }),
+      done: data.printed.filter(function (it) { return mine(it) && picked[dayOf(it.printedAt)]; })
+    };
+    // Waiting parcels handed out on another day stay counted, so a day filter never
+    // hides work that is still to be done.
+    var elsewhere = data.pending.filter(function (it) { return mine(it) && !picked[dayOf(it.assignedAt)]; });
+    Array.prototype.forEach.call(dialog.querySelectorAll('.lbw__day input'), function (box) {
+      box.parentNode.querySelector('small').textContent = shortDate(now - Number(box.value) * 86400);
+    });
+    var nextDay = [0, 1, 2].filter(function (n) { return days.indexOf(n) < 0; })[0];
+    more.hidden = elsewhere.length === 0;
+    more.textContent = elsewhere.length + ' tugas dari hari lain belum dicetak'
+      + (nextDay !== undefined ? ' · centang ' + DAY_WORDS[nextDay] : '');
+    var words = days.slice().sort().map(function (n) { return DAY_WORDS[n]; }).join(' & ');
+    empties.todo.querySelector('[data-empty]').textContent = 'Tidak ada tugas ' + words + ' yang menunggu dicetak.';
+    empties.done.querySelector('[data-empty]').textContent = 'Belum ada label tugas yang dicetak ' + words + '.';
     var still = !reduced();
     var animate = still && !fresh;
 
@@ -7250,6 +7311,24 @@ export function labelBoard({ packers = [] } = {}) {
   dialog.addEventListener('click', function (e) { if (e.target === dialog) dialog.close(); });
   dialog.addEventListener('close', function () { clearTimeout(timer); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden && dialog.open) tick(); });
+  var dayBoxes = dialog.querySelectorAll('.lbw__day input');
+  function readDays() {
+    days = Array.prototype.filter.call(dayBoxes, function (b) { return b.checked; }).map(function (b) { return Number(b.value); });
+    fresh = true;
+    if (last) draw(last);
+  }
+  Array.prototype.forEach.call(dayBoxes, function (box) {
+    box.addEventListener('change', function () {
+      // At least one day stays ticked: an empty board would read as "nothing to do".
+      if (!Array.prototype.some.call(dayBoxes, function (b) { return b.checked; })) { box.checked = true; return; }
+      readDays();
+    });
+  });
+  // The note under the waiting list ticks the next day, where the other work is.
+  more.addEventListener('click', function () {
+    var box = Array.prototype.filter.call(dayBoxes, function (b) { return !b.checked; })[0];
+    if (box) { box.checked = true; readDays(); }
+  });
   Array.prototype.forEach.call(tabs, function (tab) {
     tab.addEventListener('click', function () {
       cols.setAttribute('data-tab', tab.dataset.tab);
