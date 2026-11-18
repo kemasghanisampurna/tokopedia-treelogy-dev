@@ -34,8 +34,8 @@ import { benchSnapshot } from '../src/print-queue.js';
 import { prefetchLabels } from '../src/label-prefetch.js';
 import { loadAssignments, assignLabels, unassignLabels, assignmentFor, assignedTo, splitPrintable, heldText } from '../src/label-assign.js';
 import { boardSnapshot, boardUnknown } from '../src/label-board.js';
-import { reserveFor, shelfPulse } from '../src/warehouse-reserve.js';
-import { shelfShortages, shortRefusal } from '../src/shelf-gate.js';
+import { reserveFor, shelfPulse, shortagesInTurn } from '../src/warehouse-reserve.js';
+import { shelfShortages, shortRefusal, handedOutShortages } from '../src/shelf-gate.js';
 import { labelReadiness } from '../src/labels.js';
 import { ringExpressBacklog } from '../src/alerts-express.js';
 import { refreshOrders, refreshOneOrder, RESHIPS, diffOrder } from '../src/orders-refresh.js';
@@ -1092,14 +1092,25 @@ export async function handleWrite(form, ip, user, csrf) {
     const email = String(form.get('packer') ?? '').trim().toLowerCase();
     const packer = (await listUsers()).find((u) => u.email === email && u.role === 'packer' && u.status === 'active');
     if (!packer) throw new Error('packer tidak ditemukan atau tidak aktif');
-    // Nothing on the shelf to pack: not handed out (src/shelf-gate.js, as printing).
-    const short = await shelfShortages(keys);
-    if (short.length) throw new Error(`tidak bisa ditugaskan - ${shortRefusal(short)}`);
-    await assignLabels(keys, packer, user);
-    console.log(`dashboard: label_assign ${keys.length} pesanan -> ${packer.email} oleh ${user.email}`);
+    /*
+     * Nothing on the shelf to pack: not handed out (src/shelf-gate.js, as printing). The
+     * shelf is shared out in turn - parcels already handed out keep their goods, and the
+     * ticked ones take what is left in the order they are listed. What fits is handed
+     * out; the rest stays on the page, named, rather than the whole hand-out refused.
+     */
+    const short = await shelfShortages(keys, { handingOut: true });
+    const refused = new Set(short.map((x) => x.key));
+    const handed = keys.filter((key) => !refused.has(key));
+    if (!handed.length) throw new Error(`tidak bisa ditugaskan - ${shortRefusal(short)}`);
+    await assignLabels(handed, packer, user);
+    const who = packer.name || packer.email;
+    console.log(`dashboard: label_assign ${handed.length} pesanan -> ${packer.email} oleh ${user.email}${short.length ? ` (${short.length} ditahan, stok di rak kurang)` : ''}`);
     return {
-      view: 'labels', message: `${keys.length} pesanan ditugaskan ke ${packer.name || packer.email}`,
-      audit: { menu: 'labels', verb: 'edit', target: `${keys.length} pesanan`, summary: `Menugaskan ${keys.length} label ke ${packer.name || packer.email}`, changes: keys.map((key) => ({ field: key, to: packer.name || packer.email })) },
+      view: 'labels',
+      message: short.length
+        ? `${handed.length} pesanan ditugaskan ke ${who}. ${short.length} tidak ditugaskan karena stok di rak tidak cukup - ${shortRefusal(short)}`
+        : `${handed.length} pesanan ditugaskan ke ${who}`,
+      audit: { menu: 'labels', verb: 'edit', target: `${handed.length} pesanan`, summary: `Menugaskan ${handed.length} label ke ${who}${short.length ? ` (${short.length} ditahan: stok di rak kurang)` : ''}`, changes: handed.map((key) => ({ field: key, to: who })) },
     };
   }
 
@@ -2715,7 +2726,15 @@ export default async function handler(req, res) {
     // The shelf for the packer page, polled every few seconds: one cached read, no orders.
     if (view === 'labels' && url.searchParams.get('shelf') === '1') {
       const doc = await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null);
-      send(200, JSON.stringify(shelfPulse(doc)), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      /*
+       * And which of this packer's parcels the shelf cannot fill once it is shared out in
+       * turn - three oils on the shelf with fifteen parcels waiting for one each is not
+       * enough for any parcel past the third. One read of the hand-outs for every packer
+       * polling; null when it cannot be read, and the page falls back to the shelf alone.
+       */
+      const turn = await cached('labels:shelf-turn', 3_000, handedOutShortages).catch(() => null);
+      const mine = turn ? Object.fromEntries(Object.entries(turn).filter(([, v]) => user.role !== 'packer' || v.to === user.email).map(([k, v]) => [k, v.text])) : null;
+      send(200, JSON.stringify({ ...shelfPulse(doc), turn: mine }), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       return;
     }
     // The hand-out board, polled every few seconds while its dialog is open. Packers have
@@ -2753,8 +2772,11 @@ export default async function handler(req, res) {
         const shelf = await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null);
         const found = withHolds({ orders: matched }, holds).orders;
         const people = Object.fromEntries(roster.map((u) => [u.email, u.name]));
+        // The same turn as the list: the worklist (cached) queues ahead of what was found.
+        const pool = await outstandingOrders().catch(() => null);
+        const shelfTurn = shortagesInTurn(shelf, [...(pool?.orders ?? []), ...found], handed);
         console.log(`dashboard/labels lookup: ${found.length} match(es)`);
-        json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people, assignments: handed, user, shelf }), count: found.length });
+        json(200, { rows: renderLabelLookup({ orders: found, printed, arranged: arrangedNow, people, assignments: handed, user, shelf, shelfTurn }), count: found.length });
       } catch (error) {
         console.error('dashboard/labels lookup failed:', error.message);
         json(502, { error: 'Pencarian ke database gagal, coba lagi sebentar.' });
@@ -2790,6 +2812,13 @@ export default async function handler(req, res) {
       const isPacker = user.role === 'packer';
       const packers = (await listUsers().catch(() => [])).filter((u) => u.role === 'packer' && u.status === 'active').map((u) => ({ email: u.email, name: u.name || u.email }));
       const packerFilter = isPacker ? '' : String(url.searchParams.get('packer') ?? '').slice(0, 120);
+      /*
+       * The shelf shared out in turn, over the whole worklist before any filter: a parcel
+       * handed to another packer holds its goods on this packer's page too, and on the
+       * operator's (src/warehouse-reserve.js shortagesInTurn).
+       */
+      const shelf = await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null);
+      const shelfTurn = shortagesInTurn(shelf, data.orders, assignments);
       if (isPacker) data = { ...data, orders: assignedTo(assignments, data.orders, user.email) };
       /*
        * The packer's "Sudah dicetak" tab: their parcels whose label the printer actually
@@ -2844,7 +2873,7 @@ export default async function handler(req, res) {
         onlyChanged: url.searchParams.get('changed') === '1',
         directPrinter: directPrinterFor(user),
         bench, assignments, packers, packerFilter, isPacker, packerDone, images: isPacker ? await imagesByKey() : {},
-        shelf: await cached('warehouse:shelf', 2_000, () => loadWarehouse()).catch(() => null),
+        shelf, shelfTurn,
         readAt: labelling.readAt, settleFailed: labelling.failed,
       }));
       return;

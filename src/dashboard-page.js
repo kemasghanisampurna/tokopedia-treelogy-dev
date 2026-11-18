@@ -6157,6 +6157,13 @@ const READY_TONE = { needsPrint: 'ok', reprint: 'flag' };
  * looks, ticks and prints exactly like one that was already on the page. A row with no
  * checkbox (`gone`) is one that cannot be printed, and `extra` says why underneath.
  */
+/**
+ * What the shelf cannot give this parcel: its turn in the queue when the page has one
+ * (src/warehouse-reserve.js shortagesInTurn - parcels handed out earlier hold their goods
+ * first), else the parcel held against the shelf on its own.
+ */
+const shortOnShelf = (shelf, turn, o) => turn?.get(`${o.channel}:${o.id}`) ?? shortagesFor(shelf, o);
+
 function labelRowHtml({ order: o, readiness, entry = null, assigned = null }, { batchKey = null, out = false, on = true, gone = false, extra = '', viewer = null, short = [] } = {}) {
   // The stage pill is redundant here - every row on this page is printable by
   // definition, and the readiness note already says what matters.
@@ -6289,7 +6296,7 @@ function orderPreview(order) {
   </span>`;
 }
 
-export function renderLabelLookup({ orders, printed = {}, arranged = {}, people = {}, assignments = null, user = null, shelf = null }) {
+export function renderLabelLookup({ orders, printed = {}, arranged = {}, people = {}, assignments = null, user = null, shelf = null, shelfTurn = null }) {
   const personName = (email) => people[email] || String(email || '').split('@')[0] || 'tidak diketahui';
   return orders.map((o) => {
     const readiness = labelReadiness(o, printed, arranged);
@@ -6300,7 +6307,7 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
       : '';
     const why = [gone && readiness.unavailable ? 'label tidak bisa dicetak ulang setelah pickup' : '', when]
       .filter(Boolean).join(' · ');
-    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user, short: gone ? [] : shortagesFor(shelf, o) });
+    return labelRowHtml({ order: o, readiness, entry, assigned: assignmentFor(assignments, o) }, { on: !gone, gone, extra: why, viewer: user, short: gone ? [] : shortOnShelf(shelf, shelfTurn, o) });
   }).join('');
 }
 
@@ -6377,7 +6384,7 @@ function packerDoneList(done, images, today) {
     }).join('')}</ul></li>`).join('');
 }
 
-function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, today = businessToday() }) {
+function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, shelfTurn = null, today = businessToday() }) {
   const online = Boolean(bench?.online);
   const printerName = bench?.agent?.name || 'printer gudang';
   const list = rows.map(({ order: o, readiness }) => {
@@ -6385,7 +6392,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
     const key = `${o.channel}:${o.id}`;
     // Nothing on the shelf to pack: no label, and the row says what is missing.
     // The page keeps holding `data-need` against the shelf as it moves (PACKER_SCRIPT).
-    const short = shortagesFor(shelf, o);
+    const short = shortOnShelf(shelf, shelfTurn, o);
     const gone = Boolean(readiness.unavailable) || short.length > 0;
     const need = shelf ? needsFor(shelf, o) : {};
     return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-state="${short.length ? 'short' : 'todo'}"${readiness.unavailable ? ' data-blocked="1"' : ''} data-need="${escape(JSON.stringify(need))}">
@@ -6628,23 +6635,29 @@ const PACKER_SCRIPT = `
     });
     return out;
   }
-  function applyShelf(items) {
+  // The server shares the shelf out in turn (parcels handed out earlier hold their goods
+  // first) and says which of these rows it cannot fill: \`turn\`, {key: text}. Without
+  // it - an older server, a failed read - each row is held against the shelf alone.
+  function applyShelf(items, turn) {
     todoList.querySelectorAll('.pq__row').forEach(function (row) {
       if (row.getAttribute('data-state') === 'done' || row === busyRow) return;
-      var short = shortOf(row, items), note = row.querySelector('.pq__short'), btn = row.querySelector('.pq__go');
-      row.classList.toggle('is-short', short.length > 0);
-      row.setAttribute('data-state', short.length ? 'short' : 'todo');
-      note.hidden = !short.length;
-      if (short.length) note.querySelector('span').textContent = 'Stok di rak kurang: ' + short.join(', ');
+      var text = '';
+      if (turn) text = turn[row.getAttribute('data-key')] || '';
+      else { var short = shortOf(row, items); if (short.length) text = 'Stok di rak kurang: ' + short.join(', '); }
+      var note = row.querySelector('.pq__short');
+      row.classList.toggle('is-short', !!text);
+      row.setAttribute('data-state', text ? 'short' : 'todo');
+      note.hidden = !text;
+      if (text) note.querySelector('span').textContent = text;
     });
     paintButtons();
   }
-  var shelfAt = 0, shelfBusy = null;
+  var shelfAt = 0, shelfBusy = null, shelfTurn = null;
   function pullShelf() {
     if (shelfBusy) return shelfBusy;
     shelfBusy = fetch(location.pathname + '?view=labels&shelf=1', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (s) { if (s && s.items) { shelfAt = Date.now(); applyShelf(s.items); return s.items; } return null; })
+      .then(function (s) { if (s && s.items) { shelfAt = Date.now(); shelfTurn = s.turn || null; applyShelf(s.items, shelfTurn); return s.items; } return null; })
       .catch(function () { return null; })
       .then(function (v) { shelfBusy = null; return v; });
     return shelfBusy;
@@ -6767,8 +6780,8 @@ const PACKER_SCRIPT = `
     try {
       // The shelf as it is now, not as it was when the page was drawn.
       var items = await pullShelf();
-      if (items && shortOf(row, items).length) {
-        busy = false; busyRow = null; applyShelf(items);
+      if (items && (shelfTurn ? shelfTurn[key] : shortOf(row, items).length)) {
+        busy = false; busyRow = null; applyShelf(items, shelfTurn);
         if (sheet.open) { var nx = nextRow(); if (nx) { press(nx); } else sheet.close(); }
         return;
       }
@@ -7355,7 +7368,7 @@ export function labelBoard({ packers = [] } = {}) {
   return { button, dialog, style, script };
 }
 
-export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, packerDone = [], images = {}, shelf = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
+export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, csrf, flash, sizes, defaultSize, showReprints = false, onlyChanged = false, directPrinter = null, bench = null, assignments = null, packers = [], packerFilter = '', isPacker = false, packerDone = [], images = {}, shelf = null, shelfTurn = null, printed = {}, arranged = {}, people = {}, reprintFilter = {}, now = Math.floor(Date.now() / 1000), user = null, readAt = null, settleFailed = false }) {
   // The list shows only what actually needs printing today, so everything on screen is
   // ticked and everything ticked will print. Reprints of parcels the courier already
   // took are a deliberate detour, not clutter in the daily view.
@@ -7423,7 +7436,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     // accepts.
     const gone = Boolean(readiness.unavailable);
     const held = Boolean(assigned && !mayPrint(user, assigned));
-    const short = showReprints ? [] : shortagesFor(shelf, o);
+    const short = showReprints ? [] : shortOnShelf(shelf, shelfTurn, o);
     const on = !gone && !out && !held && !short.length && ticked < MAX_PRESELECT;
     if (on) ticked += 1;
     return labelRowHtml({ order: o, readiness, entry, assigned }, { batchKey, out, on, gone, viewer: user, short });
@@ -7605,7 +7618,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   if (isPacker) {
     return shell({ user, csrf, title: 'Label', range, errors, shopeeShop, generatedAt, view: 'labels',
       hideRangeControls: true, scope: 'tugasmu', readAt, settleFailed, flash, hideHead: true, kpis: '',
-      body: packerBody({ rows: candidates, done: packerDone, bench, csrf, size: defaultSize, images, shelf }),
+      body: packerBody({ rows: candidates, done: packerDone, bench, csrf, size: defaultSize, images, shelf, shelfTurn }),
       script: PACKER_SCRIPT });
   }
   // The print log, as the Stok page offers its movement log: a Download in the page head.

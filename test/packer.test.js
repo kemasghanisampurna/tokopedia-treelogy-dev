@@ -212,7 +212,9 @@ test('goods missing from the shelf stop the parcel for everyone: no print, no ha
   assert.match(api, /const short = await shelfShortages\(/, 'checked for whoever prints');
   assert.doesNotMatch(api, /if \(user\.role === 'packer'\) \{\s*\/\/ Goods/, 'not only for packers');
   const dash = fs.readFileSync(new URL('../api/dashboard.js', import.meta.url), 'utf8');
-  assert.match(dash, /const short = await shelfShortages\(keys\);\s*if \(short\.length\) throw new Error\(`tidak bisa ditugaskan/);
+  assert.match(dash, /const short = await shelfShortages\(keys, \{ handingOut: true \}\);/);
+  assert.match(dash, /if \(!handed\.length\) throw new Error\(`tidak bisa ditugaskan/);
+  assert.match(dash, /await assignLabels\(handed, packer, user\)/, 'only what the shelf can fill is handed out');
   const { shortRefusal } = await import('../src/shelf-gate.js');
   assert.equal(shortRefusal([{ id: '#2', short: [{ name: 'Pouch', need: 1, have: 0 }] }, { id: '#3', short: [] }]), '#2: Stok di rak kurang: Pouch (perlu 1, ada 0) (dan 1 pesanan lain)');
 });
@@ -237,4 +239,22 @@ test('the packer can find a parcel by its order ID, in either tab', () => {
 test('handing out asks first, with how many and to whom', () => {
   const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'W')], assignments: null, packers: [packer] });
   assert.match(html, /'Tugaskan ' \+ n \+ ' pesanan ke ' \+ who \+ '\?'/);
+});
+
+test('a parcel handed out earlier holds its goods: the next one on the page is short, for the operator and the packer', async () => {
+  const { recipeOf } = await import('../src/warehouse.js');
+  const { shortagesInTurn } = await import('../src/warehouse-reserve.js');
+  const code = Object.keys(recipeOf('OMC-90-001'))[0];
+  const shelf = { items: { [code]: { name: 'Caps 90', qty: 2 } }, orders: {}, recipes: {} };   // one parcel's worth
+  let handed = applyAssign(null, ['shopify:#1'], packer, agas, 1000);
+  handed = applyAssign(handed, ['shopify:#3'], packer, agas, 2000);
+  const orders = [order('#2', 'S'), order('#3', 'T'), order('#1', 'W')];
+  const shelfTurn = shortagesInTurn(shelf, orders, handed);
+  const all = { ...base, arranged: { '#1': 1, '#2': 1, '#3': 1 } };
+  const html = renderLabels({ ...all, user: agas, orders, assignments: handed, packers: [packer], shelf, shelfTurn });
+  assert.match(html, /value="shopify:#2"[^>]*data-short="1"/, 'nobody handed it, and the shelf is promised already');
+  assert.match(html, /Caps 90 \(perlu 2, 2 di rak sudah untuk pesanan lain\)/);
+  const page = renderLabels({ ...all, user: packer, isPacker: true, orders: assignedTo(handed, orders, packer.email), assignments: handed, packers: [packer], shelf, shelfTurn });
+  assert.match(page, /data-key="shopify:#3" data-state="short"/, 'the later hand-out waits');
+  assert.match(page, /data-key="shopify:#1" data-state="todo"/, 'the earlier one prints');
 });

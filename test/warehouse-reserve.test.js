@@ -50,3 +50,36 @@ test('the shelf page shows the three figures and counts the orders still to proc
   const short = renderWarehouse({ warehouse, reserve: reserveFor(warehouse, [order('#1', [{ sku: 'OMC-90-001', qty: 14 }])]), csrf: 't', flash: null, user: null, range: {}, errors: {}, shopeeShop: null, generatedAt: 0 });
   assert.match(short, /wh__fig--avail"[^>]*><b class="mono is-short">-4<\/b>/, 'more claimed than on the shelf is said in red');
 });
+
+/*
+ * The shelf is one pile: three sample oils fill three parcels, not every parcel that needs
+ * one. Fifteen of them went to one packer on 18 Nov because each was asked about alone.
+ */
+test('the shelf is shared out in turn: handed-out parcels first, oldest hand-out first, then the rest', async () => {
+  const { shortagesInTurn, shortageText } = await import('../src/warehouse-reserve.js');
+  const doc = { items: { [caps90]: { name: 'Caps 90', qty: 3 } }, orders: { 'shopify|#9': { picked: 1 } }, recipes: {} };
+  const one = (id, extra) => order(id, [{ sku: 'OMC-90-001', qty: 1 }], extra);
+  const handed = { orders: { 'shopify:#1': { at: 300 }, 'shopify:#2': { at: 100 }, 'shopify:#3': { at: 200 }, 'shopify:#4': { at: 400 } } };
+  const orders = [one('#5'), one('#1'), one('#2'), one('#3'), one('#4'), one('#9'), one('#6', { stage: 'cancelled' })];
+  const turn = shortagesInTurn(doc, orders, handed);
+  const short = (k) => turn.get(`shopify:${k}`).length > 0;
+  assert.deepEqual(['#2', '#3', '#1'].map(short), [false, false, false], 'the three oldest hand-outs fit');
+  assert.equal(short('#4'), true, 'the fourth hand-out does not');
+  assert.equal(short('#5'), true, 'nor a parcel nobody has been handed yet');
+  assert.equal(short('#9'), false, 'one already taken off the shelf needs nothing');
+  assert.deepEqual(turn.get('shopify:#4'), [{ code: caps90, name: 'Caps 90', need: 1, have: 0, shelf: 3 }]);
+  assert.equal(shortageText(turn.get('shopify:#4')), 'Stok di rak kurang: Caps 90 (perlu 1, 3 di rak sudah untuk pesanan lain)');
+
+  // Handing out: the ticked ones queue behind everything already handed out.
+  const fresh = shortagesInTurn(doc, [one('#7'), one('#8')], { orders: { 'shopify:#1': { at: 1 } } }, { fresh: ['shopify:#7', 'shopify:#8'] });
+  assert.equal(fresh.get('shopify:#7').length, 0);
+  assert.equal(fresh.get('shopify:#8').length, 0, 'the hand-out on file is not on the worklist, so it holds nothing');
+  const busy = shortagesInTurn(doc, [one('#7'), one('#1'), one('#8'), one('#2'), one('#3')], handed, { fresh: ['shopify:#7', 'shopify:#8'] });
+  assert.deepEqual([busy.get('shopify:#7').length > 0, busy.get('shopify:#8').length > 0], [true, true]);
+
+  // A parcel the remainder cannot fill takes nothing, so a smaller one further down still fits.
+  const big = order('#20', [{ sku: 'OMC-90-001', qty: 3 }]);
+  const mix = shortagesInTurn(doc, [one('#21'), big, one('#22')]);
+  assert.deepEqual([mix.get('shopify:#21').length, mix.get('shopify:#20').length > 0, mix.get('shopify:#22').length], [0, true, 0]);
+  assert.equal(shortageText(mix.get('shopify:#20')), 'Stok di rak kurang: Caps 90 (perlu 3, sisa 2 - 1 dari 3 di rak sudah untuk pesanan lain)');
+});

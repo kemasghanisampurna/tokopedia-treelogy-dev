@@ -86,6 +86,61 @@ export function needsFor(doc, order) {
   return itemsForOrder(order, doc?.recipes ?? {}).items;
 }
 
+/**
+ * The shelf shared out in turn: which of these parcels the shelf can fill, and which not.
+ *
+ * Asking each parcel on its own whether "di rak" covers it says yes to every one: three
+ * sample oils on the shelf cover any single order that needs one, so fifteen of them
+ * were handed to one packer. The shelf is one pile, so the parcels queue for it. First
+ * the ones already handed to a packer and not yet printed - they were promised their
+ * goods when they were handed over - oldest hand-out first; then the rest in the order
+ * given. Each takes its goods off what is left; one the remainder cannot fill is short
+ * and takes nothing, so a smaller parcel further down may still fit.
+ *
+ * Only paid parcels waiting for their label hold goods (as in reserveFor); one the shelf
+ * has already counted needs nothing (needsFor).
+ *
+ * @param {object} doc the shelf
+ * @param {Array<object>} orders
+ * @param {{orders?: Record<string, {at?: number}>}} [assignments]
+ * @param {{fresh?: Iterable<string>}} [opts] keys being handed out right now: they queue
+ *   behind every parcel already handed out, wherever they were before
+ * @returns {Map<string, Array<{code, name, need, have, shelf}>>} by "channel:id"; empty array when it fits
+ */
+export function shortagesInTurn(doc, orders, assignments = null, { fresh = [] } = {}) {
+  const out = new Map();
+  if (!doc?.items) return out;
+  const handed = assignments?.orders ?? {};
+  const later = new Set(fresh);
+  const keyOf = (o) => `${o.channel}:${o.id}`;
+  const seen = new Set();
+  const list = [];
+  for (const o of orders ?? []) {
+    if (!o?.id || !o.channel || seen.has(keyOf(o))) continue;
+    seen.add(keyOf(o));
+    list.push(o);
+  }
+  const holding = (o) => CLAIMING.has(o.stage) && handed[keyOf(o)] && !later.has(keyOf(o));
+  const first = list.filter(holding)
+    .sort((a, b) => (Number(handed[keyOf(a)].at) || 0) - (Number(handed[keyOf(b)].at) || 0) || keyOf(a).localeCompare(keyOf(b)));
+  const queue = [...first, ...list.filter((o) => !holding(o))];
+
+  const left = {};
+  const have = (code) => (code in left ? left[code] : Number(doc.items[code]?.qty) || 0);
+  for (const o of queue) {
+    const need = needsFor(doc, o);
+    const short = [];
+    for (const [code, qty] of Object.entries(need)) {
+      const item = doc.items[code];
+      if (!item) continue;
+      if (have(code) < qty) short.push({ code, name: item.name ?? code, need: qty, have: have(code), shelf: Number(item.qty) || 0 });
+    }
+    if (!short.length) for (const [code, qty] of Object.entries(need)) if (doc.items[code]) left[code] = have(code) - qty;
+    out.set(keyOf(o), short);
+  }
+  return out;
+}
+
 /** The shelf as the packer page polls it: {code: {q, n}} - only what is needed to judge. */
 export function shelfPulse(doc) {
   const items = {};
@@ -93,7 +148,17 @@ export function shelfPulse(doc) {
   return { at: Date.now(), items };
 }
 
-/** The one line a packer reads: "Stok di rak kurang: Capsules 90 (perlu 2, ada 0)". */
-export const shortageText = (short) => (short?.length
-  ? `Stok di rak kurang: ${short.map((x) => `${x.name} (perlu ${x.need}, ada ${Math.max(0, x.have)})`).join(', ')}`
-  : '');
+/**
+ * The one line a packer reads: "Stok di rak kurang: Capsules 90 (perlu 2, ada 0)". When the
+ * shelf has some but other parcels hold them first: "(perlu 1, 3 di rak sudah untuk
+ * pesanan lain)" - "ada 0" beside a shelf that says 3 would read as a mistake.
+ */
+const shortPart = (x) => {
+  const shelf = Math.max(0, Number(x.shelf ?? x.have) || 0);
+  const have = Math.max(0, x.have);
+  if (shelf <= have) return `${x.name} (perlu ${x.need}, ada ${have})`;
+  return have > 0
+    ? `${x.name} (perlu ${x.need}, sisa ${have} - ${shelf - have} dari ${shelf} di rak sudah untuk pesanan lain)`
+    : `${x.name} (perlu ${x.need}, ${shelf} di rak sudah untuk pesanan lain)`;
+};
+export const shortageText = (short) => (short?.length ? `Stok di rak kurang: ${short.map(shortPart).join(', ')}` : '');
