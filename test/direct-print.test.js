@@ -44,10 +44,16 @@ test('only the packers get the direct printer, and only their pages carry the pa
   const args = { orders: [], range: {}, errors: {}, shopeeShop: null, generatedAt: 0, csrf: 't', flash: null, sizes: { a6: { label: 'A6' } }, defaultSize: 'a6' };
   assert.doesNotMatch(renderLabels(args), /id="dp"/);
   const kemas = { email: 'kemas@treelogy.com', name: 'Kemas', role: 'owner' };
-  // Not on the label page for anybody but the packers (18 Nov): they print to PDF or the bench.
+  // Not on the label page for the rest (18 Nov): they print to PDF or the bench. Agas keeps it.
   const his = renderLabels({ ...args, user: kemas, directPrinter: directPrinterFor(kemas) });
   assert.doesNotMatch(his, /id="dp-go"/);
   assert.doesNotMatch(his, /dp:hello/);
+  const agas = { email: 'agas@treelogy.com', name: 'Agas', role: 'operator', status: 'active' };
+  const hers = renderLabels({ ...args, user: agas, directPrinter: directPrinterFor(agas) });
+  assert.match(hers, /id="dp-go"/, 'Agas packs at the bench with the phone printer');
+  assert.match(hers, /dp:hello/);
+  const vanya = { email: 'vanya@treelogy.com', name: 'Vanya', role: 'operator', status: 'active' };
+  assert.doesNotMatch(renderLabels({ ...args, user: vanya, directPrinter: directPrinterFor(vanya) }), /id="dp-go"/, 'another operator does not');
   const panel = directPrintScript({ model: 'x' });
   assert.match(panel, /dp:hello/, 'the panel asks the host, it does not own the printer');
   assert.doesNotMatch(panel, /requestDevice/);

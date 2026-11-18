@@ -3,7 +3,7 @@ import { CHANNELS, STAGES, STAGE_META, MANUAL_CHANNEL, channelMeta, isMarketplac
 import { DATASETS, EXPORT_CHANNELS, EXPORT_PRODUCTS, PRODUCT_GROUPS, DEFAULT_DATASET } from './export/orders.js';
 import { PRESETS } from './range.js';
 import { CHANNEL_LABEL } from './stock-sync.js';
-import { DIRECT_PRINT_CSS, directPrinterFor, directPrintEnterScript, benchPanel, benchScript } from './direct-print.js';
+import { DIRECT_PRINT_CSS, directPrinterFor, directPrintEnterScript, benchPanel, benchScript, directPrintPanel, directPrintScript, hasLabelPagePanel } from './direct-print.js';
 import { labelReadiness, FETCHABLE, printedEntry, printBatches, filterPrintBatches, printersIn, printDaysIn, reprintPresets, printZoneLabel } from './labels.js';
 import { expressService, INSTANT as EXPRESS_INSTANT } from './express.js';
 import { AWAITING_PACKING } from './alerts-express.js';
@@ -7802,13 +7802,14 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   /*
    * Which "Cetak langsung" this page gets: the bench agent, when it is actually there
    * (seen within the week). The phone's own Bluetooth printer is the packer's road, on
-   * the packer's page; on this page, for everybody else, it is not offered (18 Nov) -
-   * they print to PDF or to the bench.
+   * the packer's page; on this page it is offered only to whoever still packs at the
+   * bench with it (src/direct-print.js LABEL_PAGE_PANEL - Agas). Everybody else prints
+   * to PDF or to the bench.
    */
-  void directPrinter;
+  const phonePrinter = directPrinter && hasLabelPagePanel(user) ? directPrinter : null;
   const benchKnown = Boolean(bench?.online);
-  const printPanel = benchKnown ? benchPanel(bench, { escape }) : '';
-  const printScript = benchKnown ? benchScript() : '';
+  const printPanel = benchKnown ? benchPanel(bench, { escape }) : (phonePrinter ? directPrintPanel(phonePrinter, { escape }) : '');
+  const printScript = benchKnown ? benchScript() : (phonePrinter ? directPrintScript(phonePrinter) : '');
 
   const counts = { needsPrint: 0, waiting: 0, arrange: 0, reprint: 0, changed: 0 };
   for (const { readiness } of assessed) {

@@ -55,6 +55,14 @@ export function directPrinterFor(user) {
   return PRINTING_ROLES.has(user.role) ? OKAY_D100 : null;
 }
 
+/**
+ * Who keeps the "Sambungkan printer" panel on the label page itself. The packers print
+ * from their own page; everybody else prints to PDF or the bench (18 Nov) - except Agas,
+ * who packs at the bench with the phone printer (18 Nov, the same afternoon).
+ */
+export const LABEL_PAGE_PANEL = new Set(['agas@treelogy.com']);
+export const hasLabelPagePanel = (user) => LABEL_PAGE_PANEL.has(String(user?.email ?? '').toLowerCase());
+
 /** Where the host frame starts: only a dashboard path, never the host itself. */
 export const HOST_PATH = '/api/dashboard?view=printer';
 export function safeGo(value, fallback = '/api/dashboard?view=labels') {
