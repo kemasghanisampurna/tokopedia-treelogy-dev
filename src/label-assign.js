@@ -67,6 +67,20 @@ export function mayPrint(user, assignment, { printed = false } = {}) {
 export const printedStill = (entry) => Boolean(entry && !entry.stale);
 
 /**
+ * "#14087 sudah dicetak 7 menit lalu ..." - why a packer's press was refused. A packer
+ * prints each parcel once; a page that still showed a printed parcel (a second phone, a
+ * page brought back with the back button) printed #14087 twice on 18 Nov.
+ */
+export function alreadyPrintedText(keys, ledger, now = Math.floor(Date.now() / 1000)) {
+  const key = keys[0];
+  const id = key.slice(key.indexOf(':') + 1);
+  const mins = Math.max(0, Math.round((now - (Number(ledger?.[key]?.at) || now)) / 60));
+  const ago = mins < 1 ? 'baru saja' : mins < 60 ? `${mins} menit lalu` : `${Math.floor(mins / 60)} jam lalu`;
+  const more = keys.length > 1 ? ` (dan ${keys.length - 1} lainnya)` : '';
+  return `${id}${more} sudah dicetak ${ago} - label tidak dicetak dua kali. Paket ini ada di Sudah dicetak.`;
+}
+
+/**
  * Order keys ("channel:id") split into what this person may print and what is held.
  * @param {Record<string, {stale?: boolean}>} [printed] the printed ledger: a parcel on it reprints freely
  */

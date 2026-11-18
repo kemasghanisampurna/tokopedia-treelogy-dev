@@ -6597,8 +6597,8 @@ const PACKER_SCRIPT = `
     doneList.querySelectorAll('.pq__day').forEach(function (d) { d.querySelector('.pq__dayh .mono').textContent = d.querySelectorAll('.pq__row').length; });
   }
   // Printed and on record: the row leaves "Belum dicetak" and heads today's printed list.
-  function moveToDone(row) {
-    var key = row.getAttribute('data-key'), now = new Date();
+  function moveToDone(row, at) {
+    var key = row.getAttribute('data-key'), now = at ? new Date(at) : new Date();
     var hh = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
     var li = document.createElement('li');
     li.className = 'pq__row pq__row--done is-new'; li.setAttribute('data-state', 'done'); li.setAttribute('data-key', key);
@@ -6703,6 +6703,12 @@ const PACKER_SCRIPT = `
   // first) and says which of these rows it cannot fill: \`turn\`, {key: text}. Without
   // it - an older server, a failed read - each row is held against the shelf alone.
   function applyShelf(items, turn) {
+    // Printed already - on another phone, or by a page brought back with the back button:
+    // the row goes to Sudah dicetak, at the time it was printed, and cannot print again.
+    if (shelfDone) todoList.querySelectorAll('.pq__row').forEach(function (row) {
+      var at = shelfDone[row.getAttribute('data-key')];
+      if (at && row !== busyRow) moveToDone(row, at);
+    });
     todoList.querySelectorAll('.pq__row').forEach(function (row) {
       if (row.getAttribute('data-state') === 'done' || row === busyRow) return;
       var text = '';
@@ -6716,12 +6722,12 @@ const PACKER_SCRIPT = `
     });
     paintButtons();
   }
-  var shelfAt = 0, shelfBusy = null, shelfTurn = null;
+  var shelfAt = 0, shelfBusy = null, shelfTurn = null, shelfDone = null;
   function pullShelf() {
     if (shelfBusy) return shelfBusy;
     shelfBusy = fetch(location.pathname + '?view=labels&shelf=1', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (s) { if (s && s.items) { shelfAt = Date.now(); shelfTurn = s.turn || null; applyShelf(s.items, shelfTurn); return s.items; } return null; })
+      .then(function (s) { if (s && s.items) { shelfAt = Date.now(); shelfTurn = s.turn || null; shelfDone = s.done || null; applyShelf(s.items, shelfTurn); return s.items; } return null; })
       .catch(function () { return null; })
       .then(function (v) { shelfBusy = null; return v; });
     return shelfBusy;
@@ -6844,6 +6850,14 @@ const PACKER_SCRIPT = `
     try {
       // The shelf as it is now, not as it was when the page was drawn.
       var items = await pullShelf();
+      // Printed already, elsewhere: not again. The row moves to Sudah dicetak.
+      if (shelfDone && shelfDone[key]) {
+        busy = false; busyRow = null; moveToDone(row, shelfDone[key]);
+        setState('Label ' + row.querySelector('.pq__id').textContent + ' sudah dicetak - tidak dicetak dua kali', 'is-busy');
+        if (sheet.open) { var nd = nextRow(); if (nd) { press(nd); } else sheet.close(); }
+        paintButtons();
+        return;
+      }
       if (items && (shelfTurn ? shelfTurn[key] : shortOf(row, items).length)) {
         busy = false; busyRow = null; applyShelf(items, shelfTurn);
         if (sheet.open) { var nx = nextRow(); if (nx) { press(nx); } else sheet.close(); }

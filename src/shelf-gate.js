@@ -32,7 +32,7 @@ async function readTurn(keys) {
   const wanted = [...new Set([...holding, ...keys])];
   const rows = wanted.length ? await ordersByIds(wanted.map(toRef)) : [];
   const list = Array.isArray(rows) ? rows : rows?.orders ?? [];
-  return { shelf, assignments, orders: list };
+  return { shelf, assignments, orders: list, printed };
 }
 
 /**
@@ -59,8 +59,15 @@ export async function shelfShortages(keys, { handingOut = false } = {}) {
  * {key: "Stok di rak kurang: ..."} for the ones the shelf cannot fill now.
  */
 export async function handedOutShortages() {
-  const { shelf, assignments, orders } = await readTurn([]);
+  const { shelf, assignments, orders, printed } = await readTurn([]);
   const turn = shortagesInTurn(shelf, orders, assignments);
+  // Handed out and printed (unchanged since), with when: the packer's page moves such a
+  // row to Sudah dicetak, whichever page or phone printed it.
+  const done = {};
+  for (const [key, a] of Object.entries(assignments.orders ?? {})) {
+    const entry = printed[key];
+    if (entry && !entry.stale && a?.to) done[key] = { to: a.to, at: Number(entry.at) * 1000 };
+  }
   const short = {};
   for (const [key, list] of turn) if (list.length && assignments.orders?.[key]) short[key] = { to: assignments.orders[key].to, text: shortageText(list) };
   // What the handed-out parcels hold between them, {code: qty}: the label page takes it
@@ -70,7 +77,7 @@ export async function handedOutShortages() {
     if (o.stage !== 'to_ship' || !assignments.orders?.[`${o.channel}:${o.id}`]) continue;
     for (const [code, qty] of Object.entries(needsFor(shelf, o))) held[code] = (held[code] ?? 0) + qty;
   }
-  return { short, held };
+  return { short, held, done };
 }
 
 /** "#13131: Stok di rak kurang: Pouch Treelogy (perlu 1, ada 0) (dan 2 pesanan lain)" */

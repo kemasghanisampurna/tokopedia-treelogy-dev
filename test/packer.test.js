@@ -347,3 +347,18 @@ test('a label already printed reprints for anybody who prints; the hand-out hold
   assert.equal(mayPrint({ email: 'other@x', role: 'packer' }, handed.orders['shopify:#1'], { printed: true }), false, 'a packer still prints only theirs');
   assert.equal(mayPrint(packer, handed.orders['shopify:#1'], { printed: true }), true);
 });
+
+test('a packer prints each parcel once: the server refuses a second print, and the page moves a printed row away', async () => {
+  const { alreadyPrintedText } = await import('../src/label-assign.js');
+  const now = 1_800_000_000;
+  assert.equal(alreadyPrintedText(['shopify:#14087'], { 'shopify:#14087': { at: now - 442 } }, now),
+    '#14087 sudah dicetak 7 menit lalu - label tidak dicetak dua kali. Paket ini ada di Sudah dicetak.');
+  const fs = await import('node:fs');
+  const api = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
+  assert.match(api, /if \(user\.role === 'packer'\) \{\s*const again = \[\.\.\.selected\][^\n]*printedStill\(ledger\[key\]\)\);\s*if \(again\.length\) \{ fail\(409, 'Sudah dicetak'/);
+  const dash = fs.readFileSync(new URL('../api/dashboard.js', import.meta.url), 'utf8');
+  assert.match(dash, /\{ done: turn \? Object\.fromEntries\(Object\.entries\(turn\.done \?\? \{\}\)\.filter\(\(\[, v\]\) => v\.to === user\.email\)/, 'the pulse tells a packer which of theirs are printed');
+  const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer] });
+  assert.match(page, /if \(at && row !== busyRow\) moveToDone\(row, at\);/);
+  assert.match(page, /if \(shelfDone && shelfDone\[key\]\) \{/, 'checked again right before a press');
+});

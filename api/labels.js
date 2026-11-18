@@ -9,7 +9,7 @@ import {
 } from '../src/dashboard-auth.js';
 import { recordActivity } from '../src/audit.js';
 import { can } from '../src/users.js';
-import { loadAssignments, splitPrintable, heldText } from '../src/label-assign.js';
+import { loadAssignments, splitPrintable, heldText, printedStill, alreadyPrintedText } from '../src/label-assign.js';
 import { shelfShortages, shortRefusal } from '../src/shelf-gate.js';
 import { directPrinterFor } from '../src/direct-print.js';
 import { rasterizePdf } from '../src/label-raster.js';
@@ -122,6 +122,12 @@ export default async function handler(req, res) {
   if (held.length) {
     fail(403, user.role === 'packer' ? 'Bukan tugasmu' : 'Sudah ditugaskan ke packer', heldText(held, user));
     return;
+  }
+  // A packer prints each parcel once. Their page has no reprint; a press on a parcel the
+  // ledger already has (unchanged since) comes from a page that is out of date.
+  if (user.role === 'packer') {
+    const again = [...selected].map(([id, channel]) => `${channel}:${id}`).filter((key) => printedStill(ledger[key]));
+    if (again.length) { fail(409, 'Sudah dicetak', alreadyPrintedText(again, ledger)); return; }
   }
   // Goods that are not on the shelf cannot be packed: nobody prints their label.
   const short = await shelfShortages([...selected].map(([id, channel]) => `${channel}:${id}`)).catch(() => null);

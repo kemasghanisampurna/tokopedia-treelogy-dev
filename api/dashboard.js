@@ -2740,7 +2740,9 @@ export default async function handler(req, res) {
       const mine = turn ? Object.fromEntries(Object.entries(turn.short).filter(([, v]) => user.role !== 'packer' || v.to === user.email).map(([k, v]) => [k, v.text])) : null;
       // For the label page's stock check: what handed-out parcels hold, and the shelf's
       // items under their catalogue names.
-      const extra = user.role === 'packer' ? {} : { held: turn?.held ?? null, names: shelfNames(doc?.recipes ?? {}) };
+      const extra = user.role === 'packer'
+        ? { done: turn ? Object.fromEntries(Object.entries(turn.done ?? {}).filter(([, v]) => v.to === user.email).map(([k, v]) => [k, v.at])) : null }
+        : { held: turn?.held ?? null, names: shelfNames(doc?.recipes ?? {}) };
       send(200, JSON.stringify({ ...shelfPulse(doc), turn: mine, ...extra }), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       return;
     }
