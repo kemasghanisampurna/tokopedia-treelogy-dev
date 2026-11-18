@@ -70,6 +70,25 @@ test('the host script is self-contained: the encoders are inlined, not imported'
   new Function(directPrintScript({ model: 'x' })); // so does the panel's
 });
 
+test('the chooser lists printers only, the whole room only on request, and Tes says which printer is held', () => {
+  const script = hostScript({ model: 'x', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 });
+  // Filtered by printer services and printer-like names - D100 among them.
+  assert.match(script, /var filters = SERVICES\.map\(function \(u\) \{ return \{ services: \[u\] \}; \}\);/);
+  assert.match(script, /"D100"/);
+  assert.match(script, /return \{ filters: filters, optionalServices: SERVICES \};/);
+  // Every device only behind its own button, after the filtered list came up empty.
+  assert.equal((script.match(/acceptAllDevices: true/g) ?? []).length, 1);
+  assert.match(script, /if \(all\) return \{ acceptAllDevices: true, optionalServices: SERVICES \};/);
+  assert.match(script, /if \(e\.name === 'NotFoundError'\) \{ say\('Batal memilih printer\.', 'is-off'\); offerAll\(\); \}/);
+  assert.match(script, /Tampilkan semua perangkat/);
+  assert.match(script, /store\.set\('dp\.names'/, 'a printer picked from everything is remembered as a printer');
+  // Tes prints the printer's own Bluetooth name on it.
+  assert.match(script, /ctx\.fillText\('PRINTER INI', 40, 40\);/);
+  assert.match(script, /ctx\.fillText\(name, 40, 140\);/);
+  const page = directPrintHostPage({ printer: { model: 'OKAY D100', widthMm: 100, heightMm: 150, gapMm: 2, dotsPerMm: 8, fit: 0.7 }, go: '/api/dashboard?view=labels' });
+  assert.match(page, /<button class="btn" type="button" id="test" hidden/);
+});
+
 test('the host frames only dashboard pages, never itself or another site', () => {
   assert.equal(safeGo('/api/dashboard?view=labels&reprint=1'), '/api/dashboard?view=labels&reprint=1');
   assert.equal(safeGo('/api/dashboard'), '/api/dashboard');

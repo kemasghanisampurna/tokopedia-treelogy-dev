@@ -192,6 +192,14 @@ export const PRINTER_SERVICES = [
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
 ];
 
+/**
+ * How thermal printers tend to name themselves over Bluetooth. With the services above,
+ * these narrow the phone's chooser to printers: "every device" listed the earbuds, the
+ * phones and the TVs of the whole room, and with two identical D100s on the bench (18 Nov)
+ * nobody could find theirs by trying them one by one. Case matters to the chooser.
+ */
+export const PRINTER_NAME_PREFIXES = ['D100', 'OKAY', 'Okay', 'Printer', 'PRINTER', 'printer', 'Thermal', 'Label', 'MPT', 'MTP', 'PT-', 'XP-', 'GP-', 'HM-', 'RPP', 'T58', 'P58'];
+
 /* ------------------------------------------------------------------ the pages */
 
 export const BLUEFY_STORE = 'https://apps.apple.com/app/id1492822055';
@@ -464,6 +472,7 @@ iframe{flex:1; width:100%; border:0; background:var(--bg)}
   <span class="dot" id="dot" aria-hidden="true"></span>
   <span class="name">${escape(printer.model)}</span>
   <span class="state" id="state" role="status" aria-live="polite">Mencari printer…</span>
+  <button class="btn" type="button" id="test" hidden title="Cetak penanda di printer yang tersambung">Tes</button>
   <button class="btn btn--go" type="button" id="connect">Sambungkan</button>
   <button class="leave" type="button" id="leave" title="Keluar dari mode printer">Keluar</button>
 </div>
@@ -480,6 +489,7 @@ export function hostScript(printer) {
 (function () {
   var printer = ${JSON.stringify(printer)};
   var SERVICES = ${JSON.stringify(PRINTER_SERVICES)};
+  var NAMES = ${JSON.stringify(PRINTER_NAME_PREFIXES)};
   var HOST = ${JSON.stringify(HOST_PATH)};
   var packMono = ${packMono.toString()};
   var ascii = ${ascii.toString()};
@@ -489,7 +499,7 @@ export function hostScript(printer) {
   var placePage = ${placePage.toString()};
 
   var $ = function (id) { return document.getElementById(id); };
-  var dot = $('dot'), state = $('state'), connectBtn = $('connect'), leaveBtn = $('leave'), frame = $('frame'), prog = $('prog'), fill = $('fill');
+  var dot = $('dot'), state = $('state'), connectBtn = $('connect'), testBtn = $('test'), leaveBtn = $('leave'), frame = $('frame'), prog = $('prog'), fill = $('fill');
   var store = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set: function (k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} },
                 del: function (k) { try { localStorage.removeItem(k); } catch (e) {} } };
@@ -531,7 +541,11 @@ export function hostScript(printer) {
   function tell() {
     try { frame.contentWindow.postMessage({ type: 'dp:state', connected: usable(), live: !!ch, busy: busy, text: lastText, tone: lastTone, name: device ? (device.name || printer.model) : '' }, location.origin); } catch (e) {}
   }
-  function ready() { connectBtn.textContent = usable() ? 'Ganti' : 'Sambungkan'; connectBtn.disabled = busy; connectBtn.classList.toggle('btn--go', !usable()); tell(); }
+  function ready() {
+    connectBtn.textContent = usable() ? 'Ganti' : 'Sambungkan'; connectBtn.disabled = busy; connectBtn.classList.toggle('btn--go', !usable());
+    testBtn.hidden = !(ch && device && device.gatt.connected); testBtn.disabled = busy;
+    tell();
+  }
   function progress(frac, text) {
     prog.hidden = false; fill.style.width = Math.round(frac * 100) + '%';
     if (text) say(text, 'is-busy');
@@ -633,9 +647,40 @@ export function hostScript(printer) {
     try { await attach(device, 4); }
     catch (e) { linkTry = 1; keepLink(device); throw new Error('printer mati atau di luar jangkauan - nyalakan, lalu coba lagi'); }
   }
-  async function choose() {
+  /*
+   * The chooser lists printers only: anything offering a printer service, or named the
+   * way printers name themselves, or named like a printer this phone picked before. A
+   * printer that fits none of that is still reachable - "Tampilkan semua perangkat" opens
+   * the old list of everything, and what is picked there is remembered for next time.
+   */
+  function learned() { try { var v = JSON.parse(store.get('dp.names') || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function chooser(all) {
+    if (all) return { acceptAllDevices: true, optionalServices: SERVICES };
+    var filters = SERVICES.map(function (u) { return { services: [u] }; });
+    NAMES.concat(learned()).forEach(function (n) { if (n) filters.push({ namePrefix: String(n) }); });
+    return { filters: filters, optionalServices: SERVICES };
+  }
+  var nbBox = $('nb');
+  function offerAll() {
+    if (!navigator.bluetooth) return;
+    nbBox.hidden = false;
+    nbBox.innerHTML = '<p class="nb__p">Printer tidak ada di daftar? Pastikan printer menyala dan dekat HP, lalu coba lagi - atau pilih dari semua perangkat Bluetooth.</p>'
+      + '<div class="nb__row"><button class="chip" type="button" id="nb-all">Tampilkan semua perangkat</button><button class="chip" type="button" id="nb-x">Tutup</button></div>';
+    $('nb-x').addEventListener('click', function () { nbBox.hidden = true; });
+    $('nb-all').addEventListener('click', function () {
+      nbBox.hidden = true;
+      choose(true).catch(function (e) { ch = null; say(e.name === 'NotFoundError' ? 'Batal memilih printer.' : 'Gagal menyambung: ' + e.message, 'is-off'); ready(); });
+    });
+  }
+  async function choose(all) {
     say('Pilih printer di daftar…', 'is-busy');
-    var dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
+    if (nbBox && navigator.bluetooth) nbBox.hidden = true;
+    var dev = await navigator.bluetooth.requestDevice(chooser(all));
+    // Picked from the list of everything: its name joins the printers' list on this phone.
+    if (all && dev.name) {
+      var names = learned();
+      if (names.indexOf(dev.name) < 0) { names.push(dev.name); store.set('dp.names', JSON.stringify(names.slice(-5))); }
+    }
     wire(dev);
     // A different printer: forget what the last one taught.
     if (dev.id !== prefs.device) { prefs.chunk = 0; store.set('dp.chunk', 0); prefs.svc = ''; prefs.chr = ''; store.del('dp.svc'); store.del('dp.chr'); }
@@ -668,7 +713,36 @@ export function hostScript(printer) {
   connectBtn.addEventListener('click', function () {
     if (linkTimer) { clearTimeout(linkTimer); linkTimer = null; }
     if (device && device.gatt.connected) { releasing = true; device.gatt.disconnect(); }
-    choose().catch(function (e) { ch = null; say(e.name === 'NotFoundError' ? 'Batal memilih printer.' : 'Gagal menyambung: ' + e.message, 'is-off'); ready(); });
+    choose(false).catch(function (e) {
+      ch = null;
+      // Closed without a pick - often because the printer was not in the list: say how on.
+      if (e.name === 'NotFoundError') { say('Batal memilih printer.', 'is-off'); offerAll(); }
+      else say('Gagal menyambung: ' + e.message, 'is-off');
+      ready();
+    });
+  });
+
+  /*
+   * "Which of the two is mine?" Two printers of the same model look the same in the list
+   * and on the bench. Tes prints a short slip on the printer this phone holds - its
+   * Bluetooth name in big letters - so the one that speaks is the one connected.
+   */
+  testBtn.addEventListener('click', async function () {
+    if (busy || !device) return;
+    busy = true; ready();
+    try {
+      await hold();
+      var c = blankCanvas(), ctx = c.getContext('2d');
+      var name = device.name || printer.model;
+      ctx.fillStyle = '#000'; ctx.textBaseline = 'top';
+      ctx.font = 'bold 76px sans-serif'; ctx.fillText('PRINTER INI', 40, 40);
+      ctx.font = 'bold 56px sans-serif'; ctx.fillText(name, 40, 140);
+      ctx.font = '40px sans-serif'; ctx.fillText('tersambung ke HP ini', 40, 220);
+      ctx.font = '32px sans-serif'; ctx.fillText(new Date().toLocaleString('id-ID'), 40, 285);
+      await send(job(c), function (f) { progress(f, 'Tes cetak…'); });
+      progressOff(); say('Tes terkirim · ' + name, 'is-on');
+    } catch (e) { progressOff(); say('Tes gagal: ' + e.message, 'is-off'); }
+    busy = false; ready();
   });
 
   /* ---- transfer ----
