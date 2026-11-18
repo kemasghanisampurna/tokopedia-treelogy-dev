@@ -3,7 +3,7 @@ import { CHANNELS, STAGES, STAGE_META, MANUAL_CHANNEL, channelMeta, isMarketplac
 import { DATASETS, EXPORT_CHANNELS, EXPORT_PRODUCTS, PRODUCT_GROUPS, DEFAULT_DATASET } from './export/orders.js';
 import { PRESETS } from './range.js';
 import { CHANNEL_LABEL } from './stock-sync.js';
-import { directPrintScript, directPrintPanel, DIRECT_PRINT_CSS, directPrinterFor, directPrintEnterScript, benchPanel, benchScript } from './direct-print.js';
+import { DIRECT_PRINT_CSS, directPrinterFor, directPrintEnterScript, benchPanel, benchScript } from './direct-print.js';
 import { labelReadiness, FETCHABLE, printedEntry, printBatches, filterPrintBatches, printersIn, printDaysIn, reprintPresets, printZoneLabel } from './labels.js';
 import { expressService, INSTANT as EXPRESS_INSTANT } from './express.js';
 import { AWAITING_PACKING } from './alerts-express.js';
@@ -7781,14 +7781,15 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   // took are a deliberate detour, not clutter in the daily view.
   const assessed = orders.map((o) => ({ order: o, readiness: labelReadiness(o, printed, arranged), assigned: assignmentFor(assignments, o) }));
   /*
-   * Which "Cetak langsung" this page gets. A bench with an agent (seen within the week)
-   * serves everybody and needs no phone to hold a printer; only when there is none does
-   * a person with their own Bluetooth printer get that road instead.
+   * Which "Cetak langsung" this page gets: the bench agent, when it is actually there
+   * (seen within the week). The phone's own Bluetooth printer is the packer's road, on
+   * the packer's page; on this page, for everybody else, it is not offered (18 Nov) -
+   * they print to PDF or to the bench.
    */
-  // The bench agent only when it is actually there; otherwise each phone's own printer.
+  void directPrinter;
   const benchKnown = Boolean(bench?.online);
-  const printPanel = benchKnown ? benchPanel(bench, { escape }) : (directPrinter ? directPrintPanel(directPrinter, { escape }) : '');
-  const printScript = benchKnown ? benchScript() : (directPrinter ? directPrintScript(directPrinter) : '');
+  const printPanel = benchKnown ? benchPanel(bench, { escape }) : '';
+  const printScript = benchKnown ? benchScript() : '';
 
   const counts = { needsPrint: 0, waiting: 0, arrange: 0, reprint: 0, changed: 0 };
   for (const { readiness } of assessed) {

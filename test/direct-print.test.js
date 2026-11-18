@@ -44,11 +44,13 @@ test('only the packers get the direct printer, and only their pages carry the pa
   const args = { orders: [], range: {}, errors: {}, shopeeShop: null, generatedAt: 0, csrf: 't', flash: null, sizes: { a6: { label: 'A6' } }, defaultSize: 'a6' };
   assert.doesNotMatch(renderLabels(args), /id="dp"/);
   const kemas = { email: 'kemas@treelogy.com', name: 'Kemas', role: 'owner' };
+  // Not on the label page for anybody but the packers (18 Nov): they print to PDF or the bench.
   const his = renderLabels({ ...args, user: kemas, directPrinter: directPrinterFor(kemas) });
-  assert.match(his, /id="dp-go"/);
-  assert.match(his, /dp:hello/, 'the panel asks the host, it does not own the printer');
-  assert.doesNotMatch(his, /requestDevice/);
-  assert.match(his, /localStorage\.getItem\('dp\.host'\)/, 'a page outside the host moves into it once entered');
+  assert.doesNotMatch(his, /id="dp-go"/);
+  assert.doesNotMatch(his, /dp:hello/);
+  const panel = directPrintScript({ model: 'x' });
+  assert.match(panel, /dp:hello/, 'the panel asks the host, it does not own the printer');
+  assert.doesNotMatch(panel, /requestDevice/);
   assert.doesNotMatch(renderLabels(args), /dp\.host/);
 });
 
@@ -107,14 +109,12 @@ test('a page is drawn at the calibrated size, centred across and flush to the to
   assert.equal(directPrinterFor({ email: 'kemas@treelogy.com' }).fit, 0.70, 'the measured figure, fixed in code');
 });
 
-test('the panel is on the reprint list too, with one primary button and nothing to calibrate', () => {
+test('the panel has nothing to calibrate, and the label page no longer carries it for non-packers', () => {
   const args = { orders: [], range: {}, errors: {}, shopeeShop: null, generatedAt: 0, csrf: 't', flash: null, sizes: { a6: { label: 'A6' } }, defaultSize: 'a6', directPrinter: directPrinterFor({ email: 'kemas@treelogy.com' }) };
   const reprint = renderLabels({ ...args, showReprints: true });
-  assert.match(reprint, /id="dp-go"/);
-  assert.doesNotMatch(reprint, /alibrasi/);
+  assert.doesNotMatch(reprint, /id="dp-go"/);
   assert.doesNotMatch(directPrintScript({ model: 'x', fit: 0.65 }), /dp\.fit/, 'the scale is never read from the phone');
-  assert.equal((reprint.match(/class="cta dp__go"/g) ?? []).length, 1);
-  assert.match(reprint, /dp:print/);
+  assert.doesNotMatch(directPrintScript({ model: 'x', fit: 0.65 }), /alibrasi/);
 });
 
 test('an iPhone is told about Bluefy, and the host writes in a way every implementation takes', () => {
