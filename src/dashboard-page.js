@@ -6448,7 +6448,7 @@ function packerDoneList(done, images, today) {
     }).join('')}</ul></li>`).join('');
 }
 
-function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, shelfTurn = null, today = businessToday() }) {
+function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, shelfTurn = null, printed = {}, today = businessToday() }) {
   const online = Boolean(bench?.online);
   const printerName = bench?.agent?.name || 'printer gudang';
   const list = rows.map(({ order: o, readiness }) => {
@@ -6459,7 +6459,11 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
     const short = shortOnShelf(shelf, shelfTurn, o);
     const gone = Boolean(readiness.unavailable) || short.length > 0;
     const need = shelf ? needsFor(shelf, o) : {};
-    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-state="${short.length ? 'short' : 'todo'}"${readiness.unavailable ? ' data-blocked="1"' : ''} data-need="${escape(JSON.stringify(need))}">
+    // When this parcel's label last came out, if ever: a print newer than that (another
+    // phone) moves the row away; an older one - a label the order has since outgrown,
+    // "data berubah" - does not.
+    const lastPrint = Number(printedEntry(printed, o)?.at) || 0;
+    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-printed="${lastPrint}" data-state="${short.length ? 'short' : 'todo'}"${readiness.unavailable ? ' data-blocked="1"' : ''} data-need="${escape(JSON.stringify(need))}">
       <div class="pq__main">
         <div class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></div>
         <div class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</div>
@@ -6707,7 +6711,7 @@ const PACKER_SCRIPT = `
     // Printed already - on another phone, or by a page brought back with the back button:
     // the row goes to Sudah dicetak, at the time it was printed, and cannot print again.
     if (shelfDone) todoList.querySelectorAll('.pq__row').forEach(function (row) {
-      var at = shelfDone[row.getAttribute('data-key')];
+      var at = printedSince(row);
       if (at && row !== busyRow) moveToDone(row, at);
     });
     todoList.querySelectorAll('.pq__row').forEach(function (row) {
@@ -6724,6 +6728,13 @@ const PACKER_SCRIPT = `
     paintButtons();
   }
   var shelfAt = 0, shelfBusy = null, shelfTurn = null, shelfDone = null;
+  // Printed after this row was drawn (elsewhere): when, else 0. A print from before - the
+  // label of a parcel whose order changed since - leaves the row where it is, to reprint.
+  function printedSince(row) {
+    var at = shelfDone && shelfDone[row.getAttribute('data-key')];
+    var drawn = (Number(row.getAttribute('data-printed')) || 0) * 1000;
+    return at && at > drawn ? at : 0;
+  }
   function pullShelf() {
     if (shelfBusy) return shelfBusy;
     shelfBusy = fetch(location.pathname + '?view=labels&shelf=1', { credentials: 'same-origin', cache: 'no-store' })
@@ -6852,8 +6863,8 @@ const PACKER_SCRIPT = `
       // The shelf as it is now, not as it was when the page was drawn.
       var items = await pullShelf();
       // Printed already, elsewhere: not again. The row moves to Sudah dicetak.
-      if (shelfDone && shelfDone[key]) {
-        busy = false; busyRow = null; moveToDone(row, shelfDone[key]);
+      if (printedSince(row)) {
+        busy = false; busyRow = null; moveToDone(row, printedSince(row));
         setState('Label ' + row.querySelector('.pq__id').textContent + ' sudah dicetak - tidak dicetak dua kali', 'is-busy');
         if (sheet.open) { var nd = nextRow(); if (nd) { press(nd); } else sheet.close(); }
         paintButtons();
@@ -8071,7 +8082,7 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
   if (isPacker) {
     return shell({ user, csrf, title: 'Label', range, errors, shopeeShop, generatedAt, view: 'labels',
       hideRangeControls: true, scope: 'tugasmu', readAt, settleFailed, flash, hideHead: true, kpis: '',
-      body: packerBody({ rows: candidates, done: packerDone, bench, csrf, size: defaultSize, images, shelf, shelfTurn }),
+      body: packerBody({ rows: candidates, done: packerDone, bench, csrf, size: defaultSize, images, shelf, shelfTurn, printed }),
       script: PACKER_SCRIPT });
   }
   // The print log, as the Stok page offers its movement log: a Download in the page head.

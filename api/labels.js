@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { markPrinted, printedLabels } from '../src/shopify/label.js';
 import { heldOrders, activeHold } from '../src/shopify/hold.js';
 import { warehouseSweep } from '../src/warehouse-run.js';
-import { buildLabelSheet, LABEL_SIZES, DEFAULT_SIZE } from '../src/labels.js';
+import { buildLabelSheet, LABEL_SIZES, DEFAULT_SIZE, labelOutdated } from '../src/labels.js';
+import { ordersByIds } from '../src/db/orders.js';
 import { dashboardError, renderLabelReport } from '../src/dashboard-page.js';
 import {
   COOKIE_NAME, isConfigured, parseCookies, authenticate, csrfValid, csrfToken, readFormBody, callerIp,
@@ -124,9 +125,18 @@ export default async function handler(req, res) {
     return;
   }
   // A packer prints each parcel once. Their page has no reprint; a press on a parcel the
-  // ledger already has (unchanged since) comes from a page that is out of date.
+  // ledger already has comes from a page that is out of date - unless the order changed
+  // since its print (a Shopify address edited after the label came out, #14087 on 18 Nov):
+  // then the label on the parcel is wrong, and printing it again is the whole point.
   if (user.role === 'packer') {
-    const again = [...selected].map(([id, channel]) => `${channel}:${id}`).filter((key) => printedStill(ledger[key]));
+    const printedKeys = [...selected].map(([id, channel]) => `${channel}:${id}`).filter((key) => printedStill(ledger[key]));
+    let again = printedKeys;
+    if (printedKeys.length) {
+      const now = await ordersByIds(printedKeys.map((k) => ({ channel: k.slice(0, k.indexOf(':')), id: k.slice(k.indexOf(':') + 1) }))).catch(() => null);
+      const byKey = new Map((Array.isArray(now) ? now : []).map((o) => [`${o.channel}:${o.id}`, o]));
+      // An order that cannot be read is not refused on a guess: the label may be the stale one.
+      again = now ? printedKeys.filter((k) => byKey.has(k) && !labelOutdated(ledger[k], byKey.get(k))) : [];
+    }
     if (again.length) { fail(409, 'Sudah dicetak', alreadyPrintedText(again, ledger)); return; }
   }
   // Goods that are not on the shelf cannot be packed: nobody prints their label.

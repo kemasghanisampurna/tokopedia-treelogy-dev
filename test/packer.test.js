@@ -255,8 +255,8 @@ test('a parcel handed out earlier holds its goods: the next one on the page is s
   assert.match(html, /value="shopify:#2"[^>]*data-short="1"/, 'nobody handed it, and the shelf is promised already');
   assert.match(html, /Moringa Capsules 90 caps \(perlu 2, 2 di rak sudah untuk pesanan lain\)/);
   const page = renderLabels({ ...all, user: packer, isPacker: true, orders: assignedTo(handed, orders, packer.email), assignments: handed, packers: [packer], shelf, shelfTurn });
-  assert.match(page, /data-key="shopify:#3" data-state="short"/, 'the later hand-out waits');
-  assert.match(page, /data-key="shopify:#1" data-state="todo"/, 'the earlier one prints');
+  assert.match(page, /data-key="shopify:#3" data-printed="0" data-state="short"/, 'the later hand-out waits');
+  assert.match(page, /data-key="shopify:#1" data-printed="0" data-state="todo"/, 'the earlier one prints');
 });
 
 test('a bulk hand-out or print adds the ticked parcels up per shelf item and asks which go ahead when it runs short', async () => {
@@ -355,12 +355,14 @@ test('a packer prints each parcel once: the server refuses a second print, and t
     '#14087 sudah dicetak 7 menit lalu - label tidak dicetak dua kali. Paket ini ada di Sudah dicetak.');
   const fs = await import('node:fs');
   const api = fs.readFileSync(new URL('../api/labels.js', import.meta.url), 'utf8');
-  assert.match(api, /if \(user\.role === 'packer'\) \{\s*const again = \[\.\.\.selected\][^\n]*printedStill\(ledger\[key\]\)\);\s*if \(again\.length\) \{ fail\(409, 'Sudah dicetak'/);
+  assert.match(api, /again = now \? printedKeys\.filter\(\(k\) => byKey\.has\(k\) && !labelOutdated\(ledger\[k\], byKey\.get\(k\)\)\) : \[\];/, 'refused only while the label still matches the order');
+  assert.match(api, /if \(again\.length\) \{ fail\(409, 'Sudah dicetak', alreadyPrintedText\(again, ledger\)\); return; \}/);
   const dash = fs.readFileSync(new URL('../api/dashboard.js', import.meta.url), 'utf8');
   assert.match(dash, /\{ done: turn \? Object\.fromEntries\(Object\.entries\(turn\.done \?\? \{\}\)\.filter\(\(\[, v\]\) => v\.to === user\.email\)/, 'the pulse tells a packer which of theirs are printed');
   const page = renderLabels({ ...base, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer] });
-  assert.match(page, /if \(at && row !== busyRow\) moveToDone\(row, at\);/);
-  assert.match(page, /if \(shelfDone && shelfDone\[key\]\) \{/, 'checked again right before a press');
+  assert.match(page, /var at = printedSince\(row\);\s*if \(at && row !== busyRow\) moveToDone\(row, at\);/);
+  assert.match(page, /return at && at > drawn \? at : 0;/, 'only a print newer than the row moves it');
+  assert.match(page, /if \(printedSince\(row\)\) \{/, 'checked again right before a press');
 });
 
 test('a bench print is put on record when the agent reports it done, not when it is queued', async () => {
@@ -375,4 +377,17 @@ test('a bench print is put on record when the agent reports it done, not when it
   assert.match(labels, /export async function recordBenchJob\(job, \{ ok, error = null, ip = null \} = \{\}\) \{[\s\S]*?if \(ok\) \{\s*await markPrinted\(r\.keys/);
   const agent = fs.readFileSync(new URL('../api/print-agent.js', import.meta.url), 'utf8');
   assert.match(agent, /const finished = await finishJob\(id, \{ status, error: body\.error \}\);\s*\/\/[^\n]*\n\s*if \(finished\) await recordBenchJob\(finished, \{ ok: status === 'done'/);
+});
+
+test('#14087: an address edited after the print sends the label back to the packer, and the reprint is allowed', async () => {
+  const { labelOutdated, labelSignature, labelReadiness } = await import('../src/labels.js');
+  const o = { ...order('#14087', 'Rini'), shipTo: 'Jl Kemang Timur XI' };
+  const ledger = { 'shopify:#14087': { at: 100, sig: labelSignature(o) } };
+  const edited = { ...o, shipTo: 'Jl Kemang Timur XI Komplek Melati No. 1' };
+  assert.equal(labelOutdated(ledger['shopify:#14087'], o), false);
+  assert.equal(labelOutdated(ledger['shopify:#14087'], edited), true, 'the address moved: the sheet on the parcel is wrong');
+  assert.equal(labelReadiness(edited, ledger, { '#14087': 1 }).state, 'needsPrint');
+  // The packer page draws it with its last print time, so the shelf beat does not move it away.
+  const page = renderLabels({ ...base, arranged: { '#14087': 1 }, user: packer, isPacker: true, orders: [edited], printed: ledger, assignments: applyAssign(null, ['shopify:#14087'], packer, agas), packers: [packer] });
+  assert.match(page, /data-key="shopify:#14087" data-printed="100"/);
 });
