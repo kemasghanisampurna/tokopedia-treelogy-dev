@@ -391,3 +391,19 @@ test('#14087: an address edited after the print sends the label back to the pack
   const page = renderLabels({ ...base, arranged: { '#14087': 1 }, user: packer, isPacker: true, orders: [edited], printed: ledger, assignments: applyAssign(null, ['shopify:#14087'], packer, agas), packers: [packer] });
   assert.match(page, /data-key="shopify:#14087" data-printed="100"/);
 });
+
+test('a label the order has outgrown asks the packer before it prints again: which order, when, what moved', async () => {
+  const { labelSnapshot, labelSignature } = await import('../src/labels.js');
+  const old = { ...order('#14087', 'Rini'), shipTo: 'Jl Kemang' };
+  const now = { ...old, shipTo: 'Jl Kemang, Komplek Melati No. 1' };
+  const printed = { 'shopify:#14087': { at: 1794989725, sig: labelSignature(old), as: labelSnapshot(old) } };
+  const page = renderLabels({ ...base, arranged: { '#14087': 1 }, printed, user: packer, isPacker: true, orders: [now], assignments: applyAssign(null, ['shopify:#14087'], packer, agas), packers: [packer] });
+  assert.match(page, /data-key="shopify:#14087" data-printed="1794989725" data-changed="1" data-what="alamat"/);
+  assert.match(page, /data berubah: alamat/);
+  assert.match(page, /<dialog class="pq__again" id="pq-again"/);
+  assert.match(page, /Pesanan ini sudah pernah dicetak/);
+  assert.match(page, /buang label lama/);
+  assert.match(page, /if \(row\.getAttribute\('data-changed'\) === '1' && !row\._again\) \{ askAgain\(row\); return; \}/, 'every road into a print asks first - a tap, Pesanan berikutnya, the run after a print');
+  const fresh = renderLabels({ ...base, arranged: { '#1': 1 }, user: packer, isPacker: true, orders: [order('#1', 'W')], assignments: applyAssign(null, ['shopify:#1'], packer, agas), packers: [packer] });
+  assert.doesNotMatch(fresh, /data-changed=/, 'a first print is not asked about');
+});

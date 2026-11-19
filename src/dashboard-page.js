@@ -984,6 +984,30 @@ ${DIRECT_PRINT_CSS}
 @keyframes pq-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.pq__sheet[open],.pq__step.is-now i,.pq__row--done.is-new{animation:none} .pq__ink{transition:none}}
 .pq__err{margin:0; font-size:.9rem}
+.pq__again{width:min(420px, calc(100% - 2rem)); margin:auto; padding:0; border:1px solid var(--line); border-radius:20px; background:var(--panel); color:var(--fg); box-shadow:0 30px 80px -20px rgba(0,0,0,.65)}
+.pq__again::backdrop{background:rgba(0,0,0,.6); backdrop-filter:blur(3px)}
+.pq__again[open]{animation:pq-pop .22s var(--ease-out, ease-out)}
+@keyframes pq-pop{from{transform:scale(.96); opacity:0} to{transform:none; opacity:1}}
+.pq__again-in{display:grid; gap:.85rem; padding:1.4rem 1.3rem 1.2rem; text-align:center}
+.pq__again-ico{justify-self:center; width:52px; height:52px; border-radius:16px; display:grid; place-items:center; color:var(--warn);
+  background:color-mix(in srgb, var(--warn) 14%, transparent); border:1px solid color-mix(in srgb, var(--warn) 32%, transparent)}
+.pq__again-ico .ico{width:26px; height:26px}
+.pq__again-h{margin:0; font-size:1.12rem; font-weight:650; letter-spacing:-.01em}
+.pq__again-id{margin:-.35rem 0 0; display:grid; gap:.15rem}
+.pq__again-id b{font-size:1.5rem; font-weight:700; letter-spacing:.01em}
+.pq__again-id span{color:var(--muted); font-size:.9rem}
+.pq__again-facts{margin:0; display:grid; grid-template-columns:1fr 1fr; border:1px solid var(--line); border-radius:14px; overflow:hidden; text-align:left}
+.pq__again-facts div{padding:.65rem .8rem; display:grid; gap:.15rem}
+.pq__again-facts div + div{border-left:1px solid var(--line)}
+.pq__again-facts dt{font-size:.72rem; letter-spacing:.05em; text-transform:uppercase; color:var(--dim)}
+.pq__again-facts dd{margin:0; font-size:.95rem; font-weight:600}
+.pq__again-facts div:last-child dd{color:var(--warn)}
+.pq__again-p{margin:0; font-size:.9rem; line-height:1.5; color:var(--muted)}
+.pq__again-p b{color:var(--fg)}
+.pq__again-acts{display:grid; grid-template-columns:1fr 1.4fr; gap:.6rem; margin-top:.2rem}
+.pq__again-acts .pq__close,.pq__again-go{min-height:50px; justify-content:center}
+.pq__again-go{gap:.5rem}
+@media (prefers-reduced-motion: reduce){.pq__again[open]{animation:none}}
 .pq__close{min-height:48px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); font:inherit; font-weight:600; cursor:pointer}
 .pq__close:disabled{opacity:.45; cursor:default}
 .lb-short{display:inline-flex; align-items:flex-start; gap:.3rem; white-space:normal; font-size:.85rem} .lb-short .ico{width:15px; height:15px; margin-top:.15rem}
@@ -6463,11 +6487,15 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
     // phone) moves the row away; an older one - a label the order has since outgrown,
     // "data berubah" - does not.
     const lastPrint = Number(printedEntry(printed, o)?.at) || 0;
-    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-printed="${lastPrint}" data-state="${short.length ? 'short' : 'todo'}"${readiness.unavailable ? ' data-blocked="1"' : ''} data-need="${escape(JSON.stringify(need))}">
+    // Printed before, then the order changed (an address edited in Shopify): the press asks
+    // first, so nobody takes it for a double print and the old label is thrown away.
+    const what = (readiness.what ?? []).join(', ');
+    const again = readiness.changed ? ` data-changed="1" data-what="${escape(what)}"` : '';
+    return `<li class="pq__row${short.length ? ' is-short' : ''}" data-key="${escape(key)}" data-printed="${lastPrint}"${again} data-state="${short.length ? 'short' : 'todo'}"${readiness.unavailable ? ' data-blocked="1"' : ''} data-need="${escape(JSON.stringify(need))}">
       <div class="pq__main">
         <div class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></div>
         <div class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</div>
-        <div class="pq__sum">${units} barang &middot; ${lines.length} produk${readiness.changed ? ' &middot; <span class="stop">data berubah</span>' : ''}</div>
+        <div class="pq__sum">${units} barang &middot; ${lines.length} produk${readiness.changed ? ` &middot; <span class="stop">data berubah${what ? `: ${escape(what)}` : ''}</span>` : ''}</div>
         <div class="pq__short" role="note"${short.length ? '' : ' hidden'}>${svg('warn')}<span>${escape(shortageText(short))}</span></div>
       </div>
       <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
@@ -6523,6 +6551,22 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
         <button class="cta pq__next" type="button" id="pq-next" hidden>
           <span class="pq__next-t"><b>Pesanan berikutnya</b><small id="pq-next-who"></small></span>${svg('arrow')}
         </button>
+      </div>
+    </div>
+  </dialog>
+  <dialog class="pq__again" id="pq-again" aria-labelledby="pq-again-h" aria-describedby="pq-again-p">
+    <div class="pq__again-in">
+      <span class="pq__again-ico" aria-hidden="true">${svg('warn')}</span>
+      <h2 class="pq__again-h" id="pq-again-h">Pesanan ini sudah pernah dicetak</h2>
+      <p class="pq__again-id"><b class="mono" id="pq-again-id"></b><span id="pq-again-who"></span></p>
+      <dl class="pq__again-facts">
+        <div><dt>Dicetak</dt><dd id="pq-again-at"></dd></div>
+        <div><dt>Yang berubah</dt><dd id="pq-again-what"></dd></div>
+      </dl>
+      <p class="pq__again-p" id="pq-again-p">Data pesanan berubah setelah labelnya dicetak, jadi label lama di paket sudah tidak benar. Cetak label baru, tempel di paket, lalu <b>buang label lama</b>.</p>
+      <div class="pq__again-acts">
+        <button class="pq__close" type="button" id="pq-again-no">Batal</button>
+        <button class="cta pq__again-go" type="button" id="pq-again-go">${svg('printer')}<span>Lanjut cetak</span></button>
       </div>
     </div>
   </dialog>
@@ -6855,8 +6899,34 @@ const PACKER_SCRIPT = `
     return r.ok ? r.json() : null;
   }
 
+  /*
+   * The same parcel again, after its order changed (#14087, 18 Nov: an address edited six
+   * minutes after the first label). Asked before the press goes through: which order, when
+   * the old label came out, what moved - and that the old label is to be thrown away.
+   */
+  var againDlg = document.getElementById('pq-again'), againRow = null;
+  function askAgain(row) {
+    againRow = row;
+    document.getElementById('pq-again-id').textContent = row.querySelector('.pq__id').textContent;
+    document.getElementById('pq-again-who').textContent = row.querySelector('.pq__buyer').textContent;
+    var at = Number(row.getAttribute('data-printed')) || 0;
+    document.getElementById('pq-again-at').textContent = at
+      ? new Date(at * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' · ' + new Date(at * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+      : 'sebelumnya';
+    document.getElementById('pq-again-what').textContent = row.getAttribute('data-what') || 'data pesanan';
+    if (typeof againDlg.showModal === 'function') againDlg.showModal(); else againDlg.setAttribute('open', '');
+    document.getElementById('pq-again-go').focus();
+  }
+  document.getElementById('pq-again-go').addEventListener('click', function () {
+    var row = againRow; againRow = null; againDlg.close();
+    if (row && row.isConnected) { row._again = true; press(row); }
+  });
+  document.getElementById('pq-again-no').addEventListener('click', function () { againRow = null; againDlg.close(); });
+  againDlg.addEventListener('close', function () { againRow = null; });
+
   async function press(row) {
     if (busy) return;
+    if (row.getAttribute('data-changed') === '1' && !row._again) { askAgain(row); return; }
     var key = row.getAttribute('data-key');
     busy = true; busyRow = row; retry = function () { press(row); };
     try {
