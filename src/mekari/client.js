@@ -326,7 +326,7 @@ export async function mekari({ method = 'GET', path, body, form, config = loadMe
    * wants the answer.
    */
   const allowance = await spend(1, { essential });
-  if (!allowance.allowed) throw new QuotaExhaustedError(allowance.reason);
+  if (!allowance.allowed) { const e = new QuotaExhaustedError(allowance.reason); e.local = true; throw e; }
   const canWait = (ms) => deadlineAt === null || Date.now() + ms < deadlineAt;
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {

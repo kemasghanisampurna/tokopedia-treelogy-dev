@@ -140,9 +140,13 @@ export default async function handler(req, res) {
     if (!dryRun && result.quotaExhausted) {
       // Once, not once per sweep: keyed on the month, so it fires again only when a new
       // month's quota has also run out.
+      // Mekari's own "monthly limit exceeded", or only the dashboard's counter (19 Nov: it
+      // read 134 while the console said 6,194 of 12,000) - said apart, with what to do.
       await sendTelegram(
-        '<b>⛔ Kuota API bulanan Mekari Jurnal habis</b>\nSinkronisasi berhenti sampai kuota kembali (awal bulan) atau paket API Mekari di-upgrade. Pesanan tidak hilang: sapuan akan menyusul semuanya begitu kuota ada.',
-        { key: `mekari-monthly-quota-${new Date().toISOString().slice(0, 7)}` },
+        result.quotaLocal
+          ? '<b>⚠️ Penghitung kuota Jurnal di dashboard hampir habis</b>\nYang menahan sinkronisasi adalah penghitung di dashboard, bukan Mekari. Cocokkan dengan angka di console Mekari (developers.mekari.com → API usage), lalu setel: <code>npm run mekari:budget -- --set=SISA --renews=YYYY-MM-DD</code>. Pesanan tidak hilang: sapuan menyusul setelahnya.'
+          : '<b>⛔ Kuota API bulanan Mekari Jurnal habis</b>\nMekari menolak permintaan (monthly limit exceeded). Sinkronisasi berhenti sampai kuota kembali (awal bulan) atau paket API Mekari di-upgrade. Pesanan tidak hilang: sapuan akan menyusul semuanya begitu kuota ada.',
+        { key: `mekari-${result.quotaLocal ? 'local' : 'monthly'}-quota-${new Date().toISOString().slice(0, 7)}` },
       );
     }
     if (!dryRun) {

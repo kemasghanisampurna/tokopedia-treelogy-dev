@@ -96,3 +96,22 @@ test('the gauge keeps a fortnight, not a history', async () => {
   }
   assert.equal(Object.keys((await loadBudget()).spent).length, 14);
 });
+
+test('the counter starts again from the full package once its renewal date has passed', async () => {
+  const { renewed, nextRenewal, PACKAGE } = await import('../src/mekari/budget.js');
+  // 19 Nov 2026: set on 3 Oct with a renewal of 3 Nov, never reset - it read 134 left.
+  const stale = { remaining: 134, renewsOn: '2026-11-03', spent: {} };
+  const now = Date.parse('2026-11-19T03:00:00Z');
+  const fresh = renewed(stale, now);
+  assert.equal(fresh.remaining, PACKAGE);
+  assert.equal(fresh.renewsOn, '2026-12-03');
+  assert.ok(fresh.renewedAt);
+  // Before the date: untouched. Several missed renewals: rolled to the next one ahead.
+  assert.deepEqual(renewed(stale, Date.parse('2026-11-02T23:00:00Z')), stale);
+  assert.equal(renewed({ remaining: 5, renewsOn: '2026-08-03' }, now).renewsOn, '2026-12-03');
+  // The 31st in a short month falls on its last day.
+  assert.equal(nextRenewal('2027-01-31'), '2027-02-28');
+  assert.equal(nextRenewal('2026-12-15'), '2027-01-15');
+  // No figure entered: nothing to renew.
+  assert.deepEqual(renewed({ remaining: null, renewsOn: '2026-11-03' }, now), { remaining: null, renewsOn: '2026-11-03' });
+});

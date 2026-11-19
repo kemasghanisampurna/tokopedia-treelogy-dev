@@ -554,7 +554,7 @@ async function postOrderUncoordinated(order, { accounts = null, dryRun = true, d
   try {
     await ensureContact(customerFor(order), { deadlineAt, receivableId: await receivableIdFor(order) });
   } catch (error) {
-    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: `kontak gagal: ${error.message}`, monthly: Boolean(error.monthly) };
+    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: `kontak gagal: ${error.message}`, monthly: Boolean(error.monthly), local: Boolean(error.local) };
   }
 
   try {
@@ -624,7 +624,7 @@ async function postOrderUncoordinated(order, { accounts = null, dryRun = true, d
       }
       return { customId, id: order.id, channel: order.channel, status: 'exists', invoiceId: known, total: expectedTotal };
     }
-    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: error.message, monthly: Boolean(error.monthly) };
+    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: error.message, monthly: Boolean(error.monthly), local: Boolean(error.local) };
   }
 }
 
@@ -809,6 +809,8 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
   const deadlineAt = Number.isFinite(stopAt) ? stopAt : null;
   let ranOutOfTime = false;
   let quotaExhausted = false;
+  // The dashboard's own counter refused, not Mekari: the alert says so.
+  let quotaLocal = false;
 
   for (const order of queue) {
     // Stopping early is free: the ledger already holds everything posted so far, and the
@@ -821,6 +823,7 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
     if (result.monthly) {
       // Every further order would fail the same way and spend nothing but time.
       quotaExhausted = true;
+      quotaLocal = Boolean(result.local);
       break;
     }
 
@@ -912,6 +915,7 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
     remaining: backlog.length - drained(results, { dryRun }),
     ranOutOfTime,
     quotaExhausted,
+    quotaLocal,
     created: count('created'),
     exists: count('exists'),
     failed: count('failed'),

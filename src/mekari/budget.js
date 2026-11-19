@@ -29,6 +29,34 @@ export const BUDGET_DOC = 'mekari/budget.json';
 /** Below this, only posting invoices may spend. */
 export const RESERVE = 150;
 
+/**
+ * The month's package, which the counter starts from again on each renewal. Set from
+ * the console (12,000 on the Jurnal API Bundle 1x + Free Quota); MEKARI_MONTHLY_QUOTA
+ * when the package changes.
+ */
+export const PACKAGE = Number(process.env.MEKARI_MONTHLY_QUOTA) > 0 ? Math.floor(Number(process.env.MEKARI_MONTHLY_QUOTA)) : 12_000;
+
+/** The same day of the month, a month on (the 31st of a short month falls on its last day). */
+export function nextRenewal(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(d, last))).toISOString().slice(0, 10);
+}
+
+/**
+ * The package renewed since the counter was last set: start again from the full package,
+ * once per renewal that has passed. The counter was typed in on 3 October with a renewal
+ * of 3 November, nobody reset it, and on 19 November it read 134 left - stopping the
+ * books - while the console said 6,194 of 12,000 used.
+ */
+export function renewed(doc, now = Date.now()) {
+  if (!doc?.renewsOn || known(doc.remaining) === null) return doc;
+  let renewsOn = doc.renewsOn;
+  let rolled = false;
+  for (let i = 0; i < 24 && Date.parse(`${renewsOn}T00:00:00Z`) <= now; i++) { renewsOn = nextRenewal(renewsOn); rolled = true; }
+  return rolled ? { ...doc, remaining: PACKAGE, renewsOn, renewedAt: new Date(now).toISOString() } : doc;
+}
+
 const EMPTY = { version: 1, remaining: null, at: null, renewsOn: null, spent: {} };
 
 const day = (now) => new Date(now).toISOString().slice(0, 10);
@@ -38,7 +66,7 @@ const known = numberOrNull;
 
 export async function loadBudget() {
   try {
-    return { ...EMPTY, ...((await readDoc(BUDGET_DOC)) ?? {}) };
+    return renewed({ ...EMPTY, ...((await readDoc(BUDGET_DOC)) ?? {}) });
   } catch {
     return structuredClone(EMPTY);
   }
@@ -90,7 +118,7 @@ export async function spend(count = 1, { essential = false, now = Date.now() } =
   let outcome = { allowed: true, remaining: null };
   try {
     await updateDoc(BUDGET_DOC, (current) => {
-      const doc = { ...EMPTY, ...(current ?? {}) };
+      const doc = renewed({ ...EMPTY, ...(current ?? {}) }, now);
       const remaining = known(doc.remaining);
 
       // Nobody has entered a figure. Counting spend is still useful - it is what tells
@@ -105,9 +133,12 @@ export async function spend(count = 1, { essential = false, now = Date.now() } =
         outcome = {
           allowed: false,
           remaining,
+          // Said as what it is: this counter's reading, not Mekari's refusal - so a wrong
+          // counter is caught by comparing with the console, not taken as the quota.
           reason: essential
-            ? `kuota bulanan Jurnal habis (${remaining} tersisa)`
-            : `sisa kuota ${remaining} di bawah cadangan ${RESERVE} - hanya posting faktur yang boleh jalan`,
+            ? `penghitung kuota dashboard habis (${remaining} tersisa) - cek angka di console Mekari`
+            : `penghitung kuota dashboard: sisa ${remaining}, di bawah cadangan ${RESERVE} - hanya posting faktur yang boleh jalan (cek angka di console Mekari)`,
+          local: true,
         };
         return doc;
       }
