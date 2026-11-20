@@ -8024,15 +8024,19 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     var check;
     try { check = Promise.resolve(window.treelogyStockCheck(mode, who)); }
     catch (err) { check = Promise.reject(err); }
+    // Always a task later, never in the microtask. A selection with nothing to count (a
+    // resend, whose goods the swap already took) resolves at once, and on a real click
+    // that callback runs while the browser is still firing this very submit - when
+    // requestSubmit is ignored without a word. Tugaskan on RS-261120-0000E8N alone did
+    // nothing at all (20 Nov); a script click or any row that needed the shelf read
+    // resolved later, which is why it only ever failed for that row.
     check.then(function (r) {
-      restore();
-      if (r && r.ok) go(r.asked);
+      setTimeout(function () { restore(); if (r && r.ok) go(r.asked); }, 0);
     }, function (err) {
       // The check broke, not the shelf: the server refuses what the shelf cannot fill, so
       // the action goes on rather than dying silently in the page.
-      restore();
       if (window.console) console.warn('cek stok gagal, diteruskan ke server:', err);
-      go(false);
+      setTimeout(function () { restore(); go(false); }, 0);
     });
   }, true);
 

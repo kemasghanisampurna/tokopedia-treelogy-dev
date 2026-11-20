@@ -380,3 +380,11 @@ test('an empty list still offers the search, with the table waiting for its resu
   assert.match(html, /<form method="post" action="\/api\/labels" target="_blank" id="lbform" data-empty hidden>/);
   assert.match(html, /Semua label sudah dicetak/);
 });
+
+test('Tugaskan and Cetak resubmit a task later, never inside the submit being fired (20 Nov)', () => {
+  // A resend has nothing left to count, so the stock check resolves at once; on a real
+  // click its callback ran mid-dispatch and requestSubmit was silently ignored.
+  const html = page();
+  assert.match(html, /check\.then\(function \(r\) \{\s*setTimeout\(function \(\) \{ restore\(\); if \(r && r\.ok\) go\(r\.asked\); \}, 0\);/);
+  assert.match(html, /setTimeout\(function \(\) \{ restore\(\); go\(false\); \}, 0\);/);
+});
