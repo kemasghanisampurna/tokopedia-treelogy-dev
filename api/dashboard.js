@@ -1910,6 +1910,7 @@ export async function handleWrite(form, ip, user, csrf) {
       message: failed.length === 0
         ? `${result.created} faktur dibuat di Jurnal${result.exists ? `, ${result.exists} sudah ada` : ''}` +
           (result.voided ? `, ${result.voided} dibatalkan dihapus` : '') +
+          (result.returned ? `, ${result.returned} refund dicatat sebagai retur penjualan` : '') +
           (later > 0 ? `, ${later} sisanya dikirim sapuan otomatis berikutnya` : '')
         : `${result.created} berhasil, ${failed.length} bermasalah - ${failed[0].customId}: ${failed[0].error}`,
       audit: {

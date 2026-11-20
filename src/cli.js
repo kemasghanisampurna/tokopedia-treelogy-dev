@@ -909,6 +909,7 @@ function printSyncResult(result) {
     (result.deferred ? `  ·  tertunda ${result.deferred} (dicoba lagi run berikutnya)` : '') +
     (result.mismatch ? `  ·  NILAI SELISIH ${result.mismatch}` : '') +
     (result.voided ? `  ·  dibatalkan dihapus ${result.voided}` : '') +
+    (result.returned ? `  ·  retur penjualan ${result.returned}` : '') +
     (result.needsReview ? `  ·  perlu ditinjau ${result.needsReview}` : ''));
   console.log(`  nilai  Rp${total.toLocaleString('id-ID')}\n`);
 

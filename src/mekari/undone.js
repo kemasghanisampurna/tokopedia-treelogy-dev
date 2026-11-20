@@ -1,4 +1,4 @@
-import { loadSyncLedger, saveSyncLedger, voidInvoice, UNDONE_STAGES, RECORDED_UNDONE } from './sync.js';
+import { loadSyncLedger, saveSyncLedger, undoInvoice, undoneRecord, UNDONE_STAGES, RECORDED_UNDONE } from './sync.js';
 import { customIdFor } from './invoice.js';
 import { ordersInRange } from '../db/orders.js';
 import { spend } from './budget.js';
@@ -52,7 +52,7 @@ export function stillBooked(orders, ledger) {
 export async function sweepUndone({
   days = UNDONE_WINDOW_DAYS, dryRun = true, max = 25, now = Date.now(),
   readOrders = ordersInRange, loadLedger = loadSyncLedger, saveLedger = saveSyncLedger,
-  undo = voidInvoice, charge = spend, notify = notifySyncFailures,
+  undo = undoInvoice, charge = spend, notify = notifySyncFailures,
 } = {}) {
   const until = Math.floor(now / 1000);
   const [orders, ledger] = await Promise.all([
@@ -61,7 +61,7 @@ export async function sweepUndone({
   ]);
 
   const candidates = stillBooked(orders, ledger);
-  const out = { found: candidates.length, voided: 0, review: 0, pending: 0, failed: 0, results: [] };
+  const out = { found: candidates.length, voided: 0, returned: 0, review: 0, pending: 0, failed: 0, results: [] };
   if (dryRun || candidates.length === 0) return out;
 
   for (const { order, entry } of candidates.slice(0, max)) {
@@ -82,24 +82,20 @@ export async function sweepUndone({
     const outcome = await undo(order, entry, { dryRun: false });
     out.results.push(outcome);
     if (outcome.outcome === 'voided' || outcome.outcome === 'gone') out.voided += 1;
+    else if (outcome.outcome === 'returned') out.returned += 1;
     else if (outcome.outcome === 'needs_review') out.review += 1;
     else if (outcome.outcome === 'pending') out.pending += 1;
     else out.failed += 1;
 
     if (RECORDED_UNDONE.has(outcome.outcome)) {
-      ledger.orders[outcome.customId] = {
-        ...entry,
-        ...(outcome.outcome === 'needs_review'
-          ? { needs_review: outcome.reason }
-          : { voided: true, voided_at: new Date().toISOString() }),
-      };
+      ledger.orders[outcome.customId] = { ...entry, ...undoneRecord(outcome) };
       // Saved after every one, not at the end: a crash halfway through must not make the
       // next run try to delete an invoice that is already gone.
       await saveLedger(ledger);
     }
   }
 
-  if (out.voided > 0) {
+  if (out.voided > 0 || out.returned > 0) {
     await forgetCatalogue().catch(() => {});
     invalidate('jurnal');
   }

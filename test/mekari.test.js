@@ -1379,7 +1379,7 @@ test('a cancellation still in progress leaves no mark, so the sweep looks again'
   // order broken for good.
   const { RECORDED_UNDONE } = await import('../src/mekari/sync.js');
   assert.equal(RECORDED_UNDONE.has('pending'), false);
-  assert.deepEqual([...RECORDED_UNDONE].sort(), ['gone', 'needs_review', 'voided']);
+  assert.deepEqual([...RECORDED_UNDONE].sort(), ['gone', 'needs_review', 'returned', 'voided']);
 
   const ledger = { orders: { 'TRL-shopee-A': { invoice_id: 1 } } };
   const asked = order({ id: 'A', stage: 'cancelled', status: 'IN_CANCEL' });
@@ -1564,4 +1564,63 @@ test('only a marked, still-paid, invoiced order waits for its edit to be rewritt
     [customIdFor(orders[3])]: { invoice_id: 4, amend_pending: 'x', voided: true },
   } };
   assert.deepEqual(pendingAmends(orders, ledger).map((o) => o.id), ['1']);
+});
+
+/* ------------------------------------------------- a Shopify refund is a sales return */
+
+const { returnInvoice, undoInvoice, undoneRecord, isShopifyRefund } = await import('../src/mekari/sync.js');
+
+const refunded = { channel: 'shopify', id: '#14105', stage: 'returned', status: 'REFUNDED/UNFULFILLED', createdAt: 1795000000 };
+const soldInvoice = { sales_invoice: { id: 2054621338, transaction_no: '20219', transaction_lines_attributes: [
+  { id: 2666052986, quantity: 10, product: { product_code: 'OMC-270-001' } },
+  { id: 2666052990, quantity: 10, product: { product_code: 'Mystery-Gift' } },
+] } };
+
+test('a Shopify refund books every invoice line back as a sales return, the invoice kept', async () => {
+  const calls = [];
+  const call = async (req) => {
+    calls.push(req);
+    if (!req.method) return soldInvoice;
+    return { sales_return: { id: 77, transaction_no: 'SR-1', original_amount: '9732500.0' } };
+  };
+  const out = await returnInvoice(refunded, { invoice_id: 2054621338 }, { dryRun: false, call, now: Date.parse('2026-11-20T03:00:00Z') });
+
+  assert.equal(out.outcome, 'returned');
+  assert.equal(out.returnNo, 'SR-1');
+  assert.ok(!calls.some((c) => c.method === 'DELETE'), 'faktur tidak boleh dihapus');
+  const post = calls.find((c) => c.method === 'POST');
+  assert.equal(post.path, '/public/jurnal/api/v1/sales_returns');
+  assert.equal(post.body.sales_return.invoice_id, 2054621338);
+  assert.deepEqual(post.body.sales_return.transaction_return_lines_attributes, [
+    { transaction_line_id: 2666052986, return_quantity: 10 },
+    { transaction_line_id: 2666052990, return_quantity: 10 },
+  ]);
+  assert.match(post.body.sales_return.transaction_date, /^20-11-2026$|^2026-11-20$/);
+  assert.match(post.body.sales_return.memo, /#14105/);
+});
+
+test('a refund whose invoice is already gone is recorded, and a dry run writes nothing', async () => {
+  const gone = await returnInvoice(refunded, { invoice_id: 1 }, { dryRun: false, call: async () => {
+    const e = new Error('Data not found'); e.status = 422; e.body = { error: 'Data not found' }; throw e;
+  } });
+  assert.equal(gone.outcome, 'gone');
+  const dry = await returnInvoice(refunded, { invoice_id: 1 }, { dryRun: true, call: async () => { throw new Error('tidak boleh dipanggil'); } });
+  assert.equal(dry.outcome, 'dry-run');
+});
+
+test('only a Shopify refund is returned; a cancellation is still deleted', async () => {
+  assert.ok(isShopifyRefund(refunded));
+  assert.ok(!isShopifyRefund({ channel: 'shopify', stage: 'cancelled' }));
+  assert.ok(!isShopifyRefund({ channel: 'shopee', stage: 'returned' }));
+  // A marketplace return in progress stays pending, exactly as before.
+  const marketplace = await undoInvoice(order({ stage: 'returned', status: 'TO_RETURN' }), { invoice_id: 9 }, { dryRun: true });
+  assert.equal(marketplace.outcome, 'pending');
+});
+
+test('the ledger remembers the return, and the Jurnal tab says so', () => {
+  const rec = undoneRecord({ outcome: 'returned', returnId: 77, returnNo: 'SR-1' }, '2026-11-20T03:00:00Z');
+  assert.equal(rec.voided, true, 'tidak di-amend atau diposting ulang');
+  assert.deepEqual(rec.sales_return, { id: 77, no: 'SR-1', at: '2026-11-20T03:00:00Z' });
+  const ov = overviewOf({ orders: [refunded], ledger: { orders: { 'TRL-shopify-14105': { invoice_id: 2054621338, total: 9732500, ...rec } } } });
+  assert.match(ov.rows[0].reason, /retur penjualan SR-1/);
 });

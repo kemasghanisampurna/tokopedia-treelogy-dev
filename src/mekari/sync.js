@@ -2,7 +2,7 @@ import { readDoc, updateDoc } from '../store/index.js';
 import { mekari, isMekariConfigured, MekariError, QuotaExhaustedError } from './client.js';
 import { claimInvoice, releaseInvoice } from './claim.js';
 import { loadRetryBook, isDue, recordOutcomes } from './retry.js';
-import { buildInvoice, verifyInvoice, customIdFor, customerFor, normaliseCustomId, CUSTOMER_NAMES } from './invoice.js';
+import { buildInvoice, verifyInvoice, customIdFor, customerFor, normaliseCustomId, CUSTOMER_NAMES, jurnalDate } from './invoice.js';
 import { isReadOnly, ReadOnlyError } from '../stock-sync.js';
 import { ensureContact, rememberContacts, knownContactNames, stampReady, explainMissingProduct, ensureProductsFor, PRODUCT_MISSING } from './setup.js';
 import { accountMap } from './accounts.js';
@@ -337,6 +337,10 @@ export function syncOverview({ orders, ledger, accounts = null }) {
     }
     if (recorded?.needs_review) {
       return { order, customId, state: 'broken', total: recorded.total ?? 0, invoiceId: recorded.invoice_id ?? null, reason: recorded.needs_review };
+    }
+    if (recorded?.sales_return) {
+      return { order, customId, state: 'skipped', total: 0, invoiceId: recorded.invoice_id ?? null,
+        reason: `refund - retur penjualan${recorded.sales_return.no ? ` ${recorded.sales_return.no}` : ''} dicatat di Jurnal` };
     }
     if (recorded?.voided) {
       return { order, customId, state: 'skipped', total: 0, reason: 'dibatalkan - faktur dihapus' };
@@ -679,7 +683,79 @@ export function pendingAmends(orders, ledger) {
  * and 'deferred' are absent for the older reason: the next run sees the same order in the
  * same state and tries again.
  */
-export const RECORDED_UNDONE = new Set(['voided', 'gone', 'needs_review']);
+export const RECORDED_UNDONE = new Set(['voided', 'returned', 'gone', 'needs_review']);
+
+/** What the ledger keeps for an undone sale, so no later sweep, amend or drift check touches it again. */
+export function undoneRecord(outcome, at = new Date().toISOString()) {
+  if (outcome.outcome === 'needs_review') return { needs_review: outcome.reason };
+  // A returned invoice still exists in Jurnal; `voided` here means "no longer a live sale
+  // for us to amend or re-post", which every reader of the ledger already honours.
+  if (outcome.outcome === 'returned') return { voided: true, voided_at: at, sales_return: { id: outcome.returnId, no: outcome.returnNo, at } };
+  return { voided: true, voided_at: at };
+}
+
+const SALES_RETURNS_PATH = '/public/jurnal/api/v1/sales_returns';
+
+/** Refunded in full on Shopify (REFUNDED, or its payment VOIDED): booked as a sales return. */
+export const isShopifyRefund = (order) => order?.channel === 'shopify' && order?.stage === 'returned';
+
+/**
+ * Book a Shopify refund as a Jurnal sales return, every line at its full quantity.
+ *
+ * The team keeps the invoice and books the refund against it (20 Nov, #14105): Jurnal's
+ * Sales Return account shows what was given back, where a deleted invoice shows nothing.
+ * Lines are named by transaction_line_id, read from the invoice itself, so a renamed
+ * product or a gift line at Rp0 is returned exactly as it was sold. A return posted twice
+ * would exceed the sold quantity, which Jurnal refuses - the guard if the ledger save after
+ * a success is lost.
+ */
+export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = null, call = mekari, now = Date.now() } = {}) {
+  const customId = customIdFor(order);
+  const base = { customId, id: order.id, channel: order.channel, invoiceId: entry.invoice_id, stage: order.stage, status: order.status };
+  if (dryRun) return { ...base, outcome: 'dry-run' };
+  if (isReadOnly()) throw new ReadOnlyError(`retur penjualan ${customId}`);
+
+  let invoice;
+  try {
+    const found = await call({ path: `/public/jurnal/api/v1/sales_invoices/${entry.invoice_id}`, deadlineAt });
+    invoice = found?.sales_invoice ?? found;
+  } catch (error) {
+    if (isMissingInvoice(error)) return { ...base, outcome: 'gone', reason: 'faktur sudah tidak ada di Jurnal' };
+    return { ...base, outcome: failureOf(error), reason: error.message };
+  }
+
+  const lines = (invoice?.transaction_lines_attributes ?? invoice?.transaction_lines ?? [])
+    .filter((l) => l?.id && Number(l.quantity) > 0)
+    .map((l) => ({ transaction_line_id: l.id, return_quantity: Number(l.quantity) }));
+  if (lines.length === 0) {
+    return { ...base, outcome: 'needs_review', reason: `faktur ${invoice?.transaction_no ?? entry.invoice_id} tidak punya baris untuk diretur - catat retur manual` };
+  }
+
+  try {
+    const posted = await call({
+      method: 'POST', path: SALES_RETURNS_PATH, deadlineAt,
+      body: { sales_return: {
+        transaction_date: jurnalDate(Math.floor(now / 1000), order.channel),
+        invoice_id: entry.invoice_id,
+        transaction_return_lines_attributes: lines,
+        memo: `Refund ${order.id} di Shopify (${customId})`,
+      } },
+    });
+    const ret = posted?.sales_return ?? posted;
+    return {
+      ...base, outcome: 'returned', transactionNo: invoice.transaction_no ?? null,
+      returnId: ret?.id ?? null, returnNo: ret?.transaction_no ?? null,
+      total: Number(ret?.original_amount ?? ret?.amount ?? NaN) || null,
+    };
+  } catch (error) {
+    return { ...base, outcome: failureOf(error), reason: error.message };
+  }
+}
+
+/** The way an undone sale leaves the books: a Shopify refund is returned, the rest deleted. */
+export function undoInvoice(order, entry, options = {}) {
+  return isShopifyRefund(order) ? returnInvoice(order, entry, options) : voidInvoice(order, entry, options);
+}
 
 export async function voidInvoice(order, entry, { dryRun = true, deadlineAt = null, call = mekari } = {}) {
   const customId = customIdFor(order);
@@ -852,13 +928,10 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
   for (const order of undoneCandidates(orders, ledger)) {
     if (Date.now() > stopAt || quotaExhausted) break;
     const entry = ledger.orders[customIdFor(order)];
-    const outcome = await voidInvoice(order, entry, { dryRun, deadlineAt });
+    const outcome = await undoInvoice(order, entry, { dryRun, deadlineAt });
     undone.push(outcome);
     if (!dryRun && RECORDED_UNDONE.has(outcome.outcome)) {
-      ledger.orders[outcome.customId] = {
-        ...entry,
-        ...(outcome.outcome === 'needs_review' ? { needs_review: outcome.reason } : { voided: true, voided_at: new Date().toISOString() }),
-      };
+      ledger.orders[outcome.customId] = { ...entry, ...undoneRecord(outcome) };
       await saveSyncLedger(ledger);
     }
   }
@@ -935,6 +1008,7 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
     // "nothing to do" and stop before the real run that would write it.
     amendsDue: pendingAmends(orders, ledger).length,
     voided: undone.filter((u) => u.outcome === 'voided').length,
+    returned: undone.filter((u) => u.outcome === 'returned').length,
     needsReview: undone.filter((u) => u.outcome === 'needs_review').length,
     // Cancellations and returns still in progress. Counted, never recorded: the next sweep
     // takes the same orders again and they stay visible until the platform makes up its
