@@ -2969,7 +2969,6 @@ function swapDialog(swap, csrf) {
   };
   tally(swap.back, 1);
   tally(swap.out, -1);
-  tally(swap.take, -1);
   const outcome = [...result.values()].map((row) => {
     const after = (row.now ?? 0) + row.net;
     return `<li class="sw__r${after < 0 ? ' is-short' : ''}" data-sw-res="${escape(row.code)}" data-now="${escape(String(row.now ?? 0))}">
@@ -2990,10 +2989,9 @@ function swapDialog(swap, csrf) {
         <input type="hidden" name="resend" value="${escape(swap.resendId)}">
         ${part('in', 'Stok masuk: kembali ke rak', swap.back, 'bcode', 'bqty', 1, 'Pesanan ini tidak tercatat keluar dari gudang.')}
         ${part('out', 'Stok keluar: barang salah kirim', swap.out, 'ocode', 'oqty', -1, 'Tidak ada barang gudang yang cocok dengan barang salah kirim.')}
-        ${part('out', 'Stok keluar: barang dikirim ulang', swap.take, 'tcode', 'tqty', -1, 'Tidak ada yang perlu dipotong: sudah tercatat keluar, atau belum punya isi produk.')}
         ${swap.unknown.length ? `<p class="sw__w">${svg('warn')}<span>Belum punya isi produk, jadi tidak dihitung: ${escape(swap.unknown.join(', '))}</span></p>` : ''}
         ${outcome ? `<section class="sw__res" aria-live="polite"><h3 class="sw__rh">Stok setelah disesuaikan</h3><ul>${outcome}</ul></section>` : ''}
-        <p class="sw__p sw__note">Setelah oke, picklist tidak memotong barang kirim ulang ini lagi. Kalau dilewati, barangnya baru terpotong saat masuk picklist.</p>
+        <p class="sw__p sw__note">Barang kirim ulangnya terpotong dari stok saat labelnya dicetak, sama seperti pesanan lain.</p>
         <div class="sw__go">
           <button class="sw__b" type="button" data-swap-skip>Lewati</button>
           <button class="sw__b sw__b--go" type="submit">${svg('check')}<span>Oke, perbarui stok</span></button>

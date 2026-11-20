@@ -499,7 +499,7 @@ async function swapOffer(resendId, user) {
     const [resend] = await ordersByIds([{ channel: 'manual', id: resendId }]);
     if (!resend?.resendFor?.id) return null;
     const plan = resendSwap(await loadWarehouse(), resend.resendFor, resend);
-    if (plan.done || !(plan.back.length || plan.out.length || plan.take.length)) return null;
+    if (plan.done || !(plan.back.length || plan.out.length)) return null;
     return { ...plan, resendId, orderId: resend.resendFor.id };
   } catch (error) {
     console.warn(`dashboard: penyesuaian stok ${resendId} tidak terbaca - ${error.message}`);
@@ -1406,8 +1406,6 @@ export async function handleWrite(form, ip, user, csrf) {
       resendId,
       back: lines('bcode', 'bqty'),
       out: lines('ocode', 'oqty'),
-      take: lines('tcode', 'tqty'),
-      order: resend,
       by: user.name || user.email,
     });
     if (duplicate) return { view: 'orders', back: '?view=orders', message: `Stok ${resendId} sudah disesuaikan, tidak dicatat dua kali` };

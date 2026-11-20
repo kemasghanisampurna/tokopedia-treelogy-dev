@@ -59,41 +59,29 @@ test('after a swap the order records what really left, and a later cancel offers
   assert.deepEqual(moved, [], 'the unchanged order must not move the shelf again');
 });
 
-test('the proposal also names the replacement, unless the resend already left', () => {
-  assert.deepEqual(resendSwap(base(), original, resend()).take.map((r) => [r.code, r.qty]), [['M-037', 1]]);
-  const counted = base();
-  counted.orders['manual|RS-1'] = { at: 1, rev: 1, items: { 'M-037': 1 } };
-  assert.deepEqual(resendSwap(counted, original, resend()).take, []);
-});
-
-test('a confirmed replacement leaves once: the picklist finds the resend already counted', () => {
+test('the replacement is never taken by the swap: it leaves when its label is printed (20 Nov)', () => {
   const order = resend();
-  const input = { key: KEY, resendId: 'RS-1', back: [{ code: 'M-037', qty: 1 }], out: [{ code: 'M-033', qty: 2 }], take: [{ code: 'M-037', qty: 3 }], order, by: 'K' };
-  const { doc, records } = swapGoods(base(), input);
-  assert.deepEqual(quantities(doc), { 'M-037': 18, 'M-033': 3 });
-  assert.deepEqual(records.map((r) => [r.kind, r.delta]), [['in', 1], ['out', -2], ['order', -3]]);
+  const plan = resendSwap(base(), original, order);
+  assert.equal(plan.take, undefined, 'the dialog proposes no replacement');
+
+  // The swap moves only what came back and what went out by mistake.
+  const { doc, records } = swapGoods(base(), { key: KEY, resendId: 'RS-1', back: [{ code: 'M-037', qty: 1 }], out: [{ code: 'M-033', qty: 2 }], by: 'K' });
+  assert.deepEqual(records.map((r) => r.kind), ['in', 'out']);
+  assert.equal(doc.orders['manual|RS-1'], undefined, 'the resend is not counted yet');
   assert.deepEqual(verifyWarehouse(doc), []);
-  assert.deepEqual(doc.orders['manual|RS-1'].items, { 'M-037': 3 }, 'a later cancel offers the confirmed number');
-  assert.equal(doc.picks.at(-1).orders[0].key, 'manual|RS-1');
-  const { moved } = applyOrders(doc, [{ ...order, labelled: true }], { admit: () => true });
-  assert.deepEqual(moved, [], 'the picklist must not take the replacement again');
+
+  // Not before its label...
+  assert.deepEqual(applyOrders(doc, [order], { admit: () => false }).moved, []);
+  // ...and once, when it is printed - the same path as every other parcel.
+  const printed = applyOrders(doc, [{ ...order, labelled: true }], { admit: (o) => Boolean(o.labelled) });
+  assert.deepEqual(printed.moved.map((m) => [m.code, m.delta]), [['M-037', -1]]);
+  assert.deepEqual(applyOrders(printed.doc, [{ ...order, labelled: true }], { admit: () => true }).moved, [], 'counted once');
 });
 
-test('a replacement set to zero stays out of the picklist too, and skipping leaves it to the picklist', () => {
-  const order = resend();
-  const zero = swapGoods(base(), { key: KEY, resendId: 'RS-1', back: [{ code: 'M-037', qty: 1 }], out: [], take: [{ code: 'M-037', qty: 0 }], order, by: 'K' }).doc;
-  assert.deepEqual(applyOrders(zero, [order], { admit: () => true }).moved, []);
-  const { moved } = applyOrders(base(), [order], { admit: () => true });
-  assert.deepEqual(moved.map((m) => [m.code, m.delta]), [['M-037', -1]]);
-});
-
-test('a picklist that got there first keeps the replacement from leaving twice', () => {
-  const order = resend();
-  const picked = applyOrders(base(), [order], { admit: () => true }).doc;
-  const { doc, records } = swapGoods(picked, { key: KEY, resendId: 'RS-1', back: [{ code: 'M-037', qty: 1 }], out: [], take: [{ code: 'M-037', qty: 1 }], order, by: 'K' });
+test('a form that still sends replacement lines takes nothing from them', () => {
+  const { doc, records } = swapGoods(base(), { key: KEY, resendId: 'RS-1', back: [{ code: 'M-037', qty: 1 }], out: [], take: [{ code: 'M-037', qty: 3 }], order: resend(), by: 'K' });
   assert.deepEqual(records.map((r) => r.kind), ['in']);
-  assert.deepEqual(quantities(doc), { 'M-037': 20, 'M-033': 5 });
-  assert.deepEqual(verifyWarehouse(doc), []);
+  assert.deepEqual(quantities(doc), { 'M-037': 21, 'M-033': 5 });
 });
 
 test('saving a resend lands on the offer, and the page opens it with the numbers editable', () => {
@@ -110,7 +98,8 @@ test('saving a resend lands on the offer, and the page opens it with the numbers
   assert.match(page, /id="swapdlg"/);
   assert.match(page, /name="bqty"[^>]*value="1"/);
   assert.match(page, /name="oqty"[^>]*value="2"/);
-  assert.match(page, /name="tqty"[^>]*value="1"/);
+  assert.doesNotMatch(page, /name="tqty"/, 'the replacement leaves at its label, not here');
+  assert.match(page, /terpotong dari stok saat labelnya dicetak/);
   assert.match(page, /data-sw-res="M-037" data-now="20"/);
   assert.match(page, /data-sw-res="M-033"[^]*?<b data-sw-after>3<\/b>/, 'the outcome shows the shelf after the swap');
   assert.match(page, /name="action" value="wh_swap"/);
