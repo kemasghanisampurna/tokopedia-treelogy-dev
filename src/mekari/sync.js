@@ -724,8 +724,16 @@ export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = 
     return { ...base, outcome: failureOf(error), reason: error.message };
   }
 
-  const lines = (invoice?.transaction_lines_attributes ?? invoice?.transaction_lines ?? [])
-    .filter((l) => l?.id && Number(l.quantity) > 0)
+  // Already returned in Jurnal by hand (#14105: return 10001, made there the same morning):
+  // recorded as it is, no second return attempted and no request spent on a refusal.
+  const sold = (invoice?.transaction_lines_attributes ?? invoice?.transaction_lines ?? []).filter((l) => l?.id && Number(l.quantity) > 0);
+  const existing = invoice?.sales_returns ?? [];
+  if (existing.length > 0 && sold.length > 0 && sold.every((l) => l.has_return_line)) {
+    const last = existing[existing.length - 1];
+    return { ...base, outcome: 'returned', transactionNo: invoice.transaction_no ?? null, returnId: last.id ?? null, returnNo: last.transaction_no ?? null, existing: true };
+  }
+
+  const lines = sold
     .map((l) => ({ transaction_line_id: l.id, return_quantity: Number(l.quantity) }));
   if (lines.length === 0) {
     return { ...base, outcome: 'needs_review', reason: `faktur ${invoice?.transaction_no ?? entry.invoice_id} tidak punya baris untuk diretur - catat retur manual` };

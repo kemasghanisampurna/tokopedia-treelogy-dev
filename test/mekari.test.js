@@ -1634,3 +1634,17 @@ test('a sales return Jurnal refuses is handed to a person once, not retried ever
   assert.equal(out.outcome, 'needs_review');
   assert.match(out.reason, /ditolak Jurnal/);
 });
+
+test('a refund already returned by hand in Jurnal is recorded as it is, without a second return', async () => {
+  const calls = [];
+  const call = async (req) => {
+    calls.push(req);
+    return { sales_invoice: { ...soldInvoice.sales_invoice,
+      sales_returns: [{ id: 2056308942, transaction_no: '10001' }],
+      transaction_lines_attributes: soldInvoice.sales_invoice.transaction_lines_attributes.map((l) => ({ ...l, has_return_line: true })) } };
+  };
+  const out = await returnInvoice(refunded, { invoice_id: 2054621338 }, { dryRun: false, call });
+  assert.equal(out.outcome, 'returned');
+  assert.equal(out.returnNo, '10001');
+  assert.equal(calls.length, 1, 'satu GET saja, tanpa POST');
+});
