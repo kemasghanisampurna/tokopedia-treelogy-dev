@@ -116,12 +116,13 @@ const ful = (n, { ageH = 72, status = 'FULFILLED', deliveredAt = null } = {}) =>
 });
 
 function harness({ shipments, fulfillments = {}, rows = new Map(), balance = 1000, answers = {}, markOutcome = 'confirmed' }) {
-  const calls = { track: [], mark: [], saved: [], balance: 0, shopifyReads: 0 };
+  const byKey = new Map();
+  const calls = { track: [], mark: [], saves: 0, balance: 0, shopifyReads: 0, get saved() { return [...byKey.values()]; } };
   const deps = {
     now: NOW,
     readShipments: async () => shipments.map((s) => ({ ...s })),
     readRows: async () => rows,
-    saveRows: async (r) => { calls.saved.push(...r); return r.length; },
+    saveRows: async (r) => { calls.saves += 1; for (const x of r) byKey.set(`${x.order_id}|${x.awb}`, x); return r.length; },
     readShopify: async (wanted) => {
       calls.shopifyReads += 1;
       return new Map(wanted.filter((w) => fulfillments[w.awb]).map((w) => [fulfillmentKey(w.gid, w.awb), fulfillments[w.awb]]));
@@ -240,4 +241,14 @@ test('every stored row carries the same columns, which PostgREST bulk upsert req
   const shapes = new Set(calls.saved.map((r) => Object.keys(r).sort().join(',')));
   assert.equal(calls.saved.length, 3);
   assert.equal(shapes.size, 1);
+});
+
+test('what was paid for is stored before Shopify is asked, so a run that dies while marking does not pay twice', async () => {
+  const { deps, calls } = harness({ shipments: [ship(1, '11LP0001')], fulfillments: { '11LP0001': ful(1) }, answers: { '11LP0001': LION_DELIVERED } });
+  let savesBeforeMark = null;
+  const mark = async () => { savesBeforeMark = calls.saves; throw new Error('proses dimatikan'); };
+  await assert.rejects(() => syncShipments({ ...deps, mark }), /dimatikan/);
+  assert.equal(savesBeforeMark, 1);
+  const row = calls.saved[0];
+  assert.deepEqual([row.status, row.shopify_marked_at], ['Delivered', null]);
 });

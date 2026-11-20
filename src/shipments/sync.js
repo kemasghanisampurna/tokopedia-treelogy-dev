@@ -196,8 +196,13 @@ export async function syncShipments({
     }
   });
 
-  // 4. Tell Shopify, one at a time, and believe only the read-back.
-  for (const { s, prior, f } of toMark) {
+  // Checkpoint: what was paid for is stored before anything else can go wrong. A run that
+  // dies while marking leaves rows that say Delivered without shopify_marked_at, and the next
+  // run marks those again for free instead of paying to track them again.
+  await saveRows([...out.values()]);
+
+  // 4. Tell Shopify, a few at a time, and believe only the read-back.
+  await mapLimit(toMark, concurrency, async ({ s, prior, f }) => {
     const latest = out.get(`${s.orderId}|${s.awb}`) ?? prior;
     const result = await mark(f.id, { happenedAt: latest.delivered_at, message: latest.last_message });
     report.marked[result.outcome] += 1;
@@ -208,7 +213,7 @@ export async function syncShipments({
       shopify_marked_at: result.outcome === 'confirmed' ? nowIso : null,
       shopify_error: result.outcome === 'confirmed' ? '' : (result.message ?? ''),
     });
-  }
+  });
 
   await saveRows([...out.values()]);
   return report;
