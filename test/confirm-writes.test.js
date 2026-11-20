@@ -61,12 +61,12 @@ test('an invoice is gone only when Jurnal says so', async () => {
   assert.equal(await invoiceGone(async () => { throw new Error('timeout'); }, 1), false);
 });
 
-test('a refund says whether the invoice really went', async () => {
-  let deletedYet = false;
-  const call = async ({ method }) => {
-    if (method === 'DELETE') { deletedYet = true; return {}; }
-    if (deletedYet) throw Object.assign(new Error('nf'), { status: 404 });
-    return { sales_invoice: { id: 9, transaction_no: 'INV-9', payment_received_amount: 0, deletable: true } };
+test('a refund says which sales return it booked, and never deletes the invoice', async () => {
+  const seen = [];
+  const call = async ({ method, path }) => {
+    seen.push(method ?? 'GET');
+    if (method === 'POST') return { sales_return: { id: 3, transaction_no: 'SR-1' } };
+    return { sales_invoice: { id: 9, transaction_no: 'INV-9', transaction_lines_attributes: [{ id: 1, quantity: 2 }] } };
   };
   const order = { id: '#1', channel: 'shopify', total: 10 };
   const deps = {
@@ -74,8 +74,9 @@ test('a refund says whether the invoice really went', async () => {
     loadLedger: async () => ({ orders: { [customIdFor(order)]: { invoice_id: 9 } } }),
   };
   const out = await refundOrder({ channel: 'shopify', id: '#1' }, deps);
-  assert.equal(out.deleted, true);
-  assert.equal(out.gone, true);
+  assert.equal(out.returned, true);
+  assert.equal(out.returnNo, 'SR-1');
+  assert.ok(!seen.includes('DELETE'));
 });
 
 test('new pictures must show on the listing, and differ from what it showed before', async () => {

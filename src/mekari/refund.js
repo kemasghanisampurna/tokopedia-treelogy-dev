@@ -1,15 +1,15 @@
 import { mekari } from './client.js';
 import { customIdFor } from './invoice.js';
-import { loadSyncLedger, saveSyncLedger, isMissingInvoice } from './sync.js';
-import { refusalFor, invoiceGone } from './discard.js';
+import { loadSyncLedger, saveSyncLedger, returnInvoice, undoneRecord } from './sync.js';
 import { orderById } from '../db/orders.js';
 import { readDoc, updateDoc } from '../store/index.js';
 import { isReadOnly, ReadOnlyError } from '../stock-sync.js';
 import { invalidate } from '../cache.js';
 
 /**
- * A marketplace order the team refunded: its invoice leaves Jurnal and its row leaves the
- * dashboard. The money itself is finance's job, done by hand - nothing here touches a
+ * An order the team refunded: booked as a sales return against its Jurnal invoice (the
+ * team's rule since 20 Nov: every refund is a sales return, never a deleted invoice) and
+ * its row leaves the dashboard. The money itself is finance's job, done by hand - nothing here touches a
  * platform or a payment.
  *
  * The row cannot simply be deleted: the next sweep would bring it back from the platform.
@@ -18,7 +18,6 @@ import { invalidate } from '../cache.js';
  */
 
 export const REFUNDS_DOC = 'orders/refunded.json';
-const INVOICES_PATH = '/public/jurnal/api/v1/sales_invoices';
 
 export const refundKey = (order) => `${order.channel}:${order.id}`;
 
@@ -50,35 +49,31 @@ export async function refundOrder({ channel, id, by = '' }, {
   const entry = ledger.orders?.[customId] ?? null;
   const invoiceId = entry?.voided ? null : (entry?.invoice_id ?? null);
 
-  let transactionNo = null;
-  let deleted = false;
-  let gone = false;
+  // Every refund is a sales return; the invoice stays. A refusal stops everything, so the
+  // order stays visible and the operator reads why.
+  let outcome = null;
   if (invoiceId) {
-    let invoice = null;
-    try {
-      const found = await call({ path: `${INVOICES_PATH}/${invoiceId}` });
-      invoice = found?.sales_invoice ?? found;
-    } catch (error) {
-      if (!isMissingInvoice(error)) throw error;
-    }
-    if (invoice) {
-      const refusal = refusalFor(invoice);
-      if (refusal) throw new Error(refusal);
-      transactionNo = invoice.transaction_no ?? null;
-      await call({ method: 'DELETE', path: `${INVOICES_PATH}/${invoiceId}` });
-      deleted = true;
-      gone = await invoiceGone(call, invoiceId);
-    }
+    outcome = await returnInvoice(order, entry, { dryRun: false, call, memo: `Refund ${order.id} dari dashboard${by ? ` oleh ${by}` : ''}` });
+    if (outcome.outcome !== 'returned' && outcome.outcome !== 'gone') throw new Error(outcome.reason ?? `retur penjualan ${id} gagal`);
   }
   const at = new Date().toISOString();
-  ledger.orders = { ...(ledger.orders ?? {}), [customId]: { ...(entry ?? {}), voided: true, voided_at: entry?.voided_at ?? at, refunded: true } };
+  ledger.orders = { ...(ledger.orders ?? {}), [customId]: {
+    ...(entry ?? {}),
+    ...(outcome ? undoneRecord(outcome, at) : { voided: true, voided_at: entry?.voided_at ?? at }),
+    refunded: true,
+  } };
   await saveLedger(ledger);
 
   await update(REFUNDS_DOC, (doc) => ({
-    orders: { ...(doc?.orders ?? {}), [refundKey(order)]: { at, by, total: Number(order.total) || 0, invoice: transactionNo ?? invoiceId } },
+    orders: { ...(doc?.orders ?? {}), [refundKey(order)]: { at, by, total: Number(order.total) || 0, invoice: outcome?.transactionNo ?? invoiceId, return: outcome?.returnNo ?? null } },
   }), { orders: {} });
 
   invalidate('orders');
   invalidate('jurnal');
-  return { id: order.id, channel, total: Number(order.total) || 0, invoiceId, transactionNo, deleted, gone };
+  return {
+    id: order.id, channel, total: Number(order.total) || 0, invoiceId,
+    transactionNo: outcome?.transactionNo ?? null,
+    returned: outcome?.outcome === 'returned', returnNo: outcome?.returnNo ?? null, existing: Boolean(outcome?.existing),
+    gone: outcome?.outcome === 'gone',
+  };
 }

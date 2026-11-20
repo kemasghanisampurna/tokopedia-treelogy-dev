@@ -1028,17 +1028,18 @@ export async function handleWrite(form, ip, user, csrf) {
     const out = await refundOrder({ channel, id, by: user.name || user.email });
     // If its goods had left the shelf, the Stok page now asks whether they came back.
     const { held } = await holdRefundFor({ channel, id, reason: 'refund' });
-    const unsure = out.deleted && !out.gone;
-    const where = `${unsure ? `Jurnal tidak menolak hapus faktur ${out.transactionNo ?? out.invoiceId}, tapi belum terkonfirmasi hilang` : out.deleted ? `faktur ${out.transactionNo ?? out.invoiceId} dihapus di Jurnal` : 'belum ada faktur di Jurnal'}${held ? ', menunggu konfirmasi barang di Stok' : ''}`;
+    const where = `${out.returned
+      ? `retur penjualan ${out.returnNo ?? ''}${out.existing ? ' (sudah ada di Jurnal)' : ''} dicatat untuk faktur ${out.transactionNo ?? out.invoiceId}`.replace('  ', ' ')
+      : out.gone ? 'faktur sudah tidak ada di Jurnal' : 'belum ada faktur di Jurnal'}${held ? ', menunggu konfirmasi barang di Stok' : ''}`;
     console.log(`dashboard: refund_order ${channel} ${id} - ${where}`);
     return {
-      view: 'orders', ...(unsure ? { kind: 'error' } : {}), message: `${id} direfund: hilang dari daftar, ${where}`,
+      view: 'orders', message: `${id} direfund: hilang dari daftar, ${where}`,
       audit: {
         menu: 'orders', verb: 'delete', target: `${channel} ${id}`,
         summary: `Refund ${channel} ${id} senilai Rp${out.total.toLocaleString('id-ID')} - ${where}`,
         changes: [
           { field: 'status', from: 'aktif', to: 'refund' },
-          ...(out.deleted ? [{ field: 'faktur Jurnal', from: String(out.transactionNo ?? out.invoiceId), to: null }] : []),
+          ...(out.returned ? [{ field: 'retur penjualan Jurnal', from: null, to: String(out.returnNo ?? out.transactionNo ?? out.invoiceId) }] : []),
         ],
       },
     };

@@ -1568,7 +1568,7 @@ test('only a marked, still-paid, invoiced order waits for its edit to be rewritt
 
 /* ------------------------------------------------- a Shopify refund is a sales return */
 
-const { returnInvoice, undoInvoice, undoneRecord, isShopifyRefund } = await import('../src/mekari/sync.js');
+const { returnInvoice, undoInvoice, undoneRecord, undoneKind } = await import('../src/mekari/sync.js');
 
 const refunded = { channel: 'shopify', id: '#14105', stage: 'returned', status: 'REFUNDED/UNFULFILLED', createdAt: 1795000000 };
 const soldInvoice = { sales_invoice: { id: 2054621338, transaction_no: '20219', transaction_lines_attributes: [
@@ -1608,13 +1608,33 @@ test('a refund whose invoice is already gone is recorded, and a dry run writes n
   assert.equal(dry.outcome, 'dry-run');
 });
 
-test('only a Shopify refund is returned; a cancellation is still deleted', async () => {
-  assert.ok(isShopifyRefund(refunded));
-  assert.ok(!isShopifyRefund({ channel: 'shopify', stage: 'cancelled' }));
-  assert.ok(!isShopifyRefund({ channel: 'shopee', stage: 'returned' }));
+test('refunds and late cancellations are returned; early cancellations deleted (20 Nov rule)', async () => {
+  // Shopify
+  assert.equal(undoneKind(refunded), 'return', '#14105: refunded, never cancelled');
+  assert.equal(undoneKind({ channel: 'shopify', stage: 'returned', status: 'REFUNDED/UNFULFILLED', cancelledAt: 1795000000 }), 'delete');
+  assert.equal(undoneKind({ channel: 'shopify', stage: 'returned', status: 'REFUNDED/FULFILLED', cancelledAt: 1795000000 }), 'return');
+  assert.equal(undoneKind({ channel: 'shopify', stage: 'returned', status: 'REFUNDED/FULFILLED' }), 'return');
+  assert.equal(undoneKind({ channel: 'shopify', stage: 'returned', status: 'VOIDED/UNFULFILLED' }), 'delete');
+  assert.equal(undoneKind({ channel: 'shopify', stage: 'cancelled', status: 'PENDING/UNFULFILLED', cancelledAt: 1 }), 'delete');
+  assert.equal(undoneKind({ channel: 'shopify', stage: 'to_ship', status: 'PAID/UNFULFILLED' }), null);
+  // Marketplaces: an AWB means it was processed
+  assert.equal(undoneKind({ channel: 'tokopedia', stage: 'cancelled', status: 'CANCELLED', tracking: '' }), 'delete');
+  assert.equal(undoneKind({ channel: 'tokopedia', stage: 'cancelled', status: 'CANCELLED', tracking: 'JX123' }), 'return');
+  assert.equal(undoneKind({ channel: 'shopee', stage: 'cancelled', status: 'IN_CANCEL' }), null);
+  assert.equal(undoneKind({ channel: 'shopee', stage: 'returned', status: 'TO_RETURN' }), null);
+
   // A marketplace return in progress stays pending, exactly as before.
   const marketplace = await undoInvoice(order({ stage: 'returned', status: 'TO_RETURN' }), { invoice_id: 9 }, { dryRun: true });
   assert.equal(marketplace.outcome, 'pending');
+  // A cancellation before processing is deleted (dry run: says so, touches nothing).
+  const early = await undoInvoice({ channel: 'shopify', id: '#2', stage: 'returned', status: 'REFUNDED/UNFULFILLED', cancelledAt: 1 }, { invoice_id: 9 }, { dryRun: true });
+  assert.equal(early.outcome, 'dry-run');
+  // A processed marketplace cancellation goes the return way, with its own memo.
+  const memos = [];
+  const call = async (req) => { if (req.method) { memos.push(req.body.sales_return.memo); return { sales_return: { id: 1 } }; } return soldInvoice; };
+  const late = await undoInvoice({ channel: 'tokopedia', id: 'T1', stage: 'cancelled', status: 'CANCELLED', tracking: 'JX123' }, { invoice_id: 9 }, { dryRun: false, call });
+  assert.equal(late.outcome, 'returned');
+  assert.match(memos[0], /Batal setelah diproses T1/);
 });
 
 test('the ledger remembers the return, and the Jurnal tab says so', () => {

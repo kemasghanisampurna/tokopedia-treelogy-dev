@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { refundOrder, withoutRefunds, REFUNDS_DOC } from '../src/mekari/refund.js';
 
 /**
- * Refund: the order leaves every list and its invoice leaves Jurnal. Money is finance's,
- * by hand - nothing here calls a platform.
+ * Refund: the order leaves every list and its invoice gets a sales return in Jurnal (the
+ * team's rule since 20 Nov - never a deleted invoice). Money is finance's, by hand.
  */
 
 const order = { channel: 'shopify', id: '#11452', total: 1145000, stage: 'to_ship' };
 const CID = 'TRL-shopify-11452';
 
-function rig({ entry = { invoice_id: 77, total: 1145000 }, invoice = { transaction_no: 'INV-9', payment_received_amount: 0, deletable: true }, getError = null } = {}) {
+const LINES = [{ id: 501, quantity: 1 }, { id: 502, quantity: 1 }];
+function rig({ entry = { invoice_id: 77, total: 1145000 }, invoice = { transaction_no: 'INV-9', transaction_lines_attributes: LINES }, getError = null, postError = null } = {}) {
   const calls = [];
   const state = { ledger: { orders: entry ? { [CID]: entry } : {} }, refunds: null, saved: 0 };
   const deps = {
@@ -18,6 +19,11 @@ function rig({ entry = { invoice_id: 77, total: 1145000 }, invoice = { transacti
     call: async (req) => {
       calls.push(`${req.method ?? 'GET'} ${req.path}`);
       if (!req.method && getError) throw getError;
+      if (req.method === 'POST') {
+        if (postError) throw postError;
+        state.posted = req.body;
+        return { sales_return: { id: 900, transaction_no: 'SR-5' } };
+      }
       return { sales_invoice: invoice };
     },
     loadLedger: async () => structuredClone(state.ledger),
@@ -27,31 +33,36 @@ function rig({ entry = { invoice_id: 77, total: 1145000 }, invoice = { transacti
   return { calls, state, deps };
 }
 
-test('an invoiced order: the invoice is deleted, the ledger voided, the order hidden', async () => {
+test('an invoiced order: a sales return for every line, the invoice kept, the order hidden', async () => {
   const { calls, state, deps } = rig();
   const out = await refundOrder({ channel: 'shopify', id: '#11452', by: 'Kemas' }, deps);
-  assert.deepEqual(calls, ['GET /public/jurnal/api/v1/sales_invoices/77', 'DELETE /public/jurnal/api/v1/sales_invoices/77', 'GET /public/jurnal/api/v1/sales_invoices/77']);
-  assert.equal(out.gone, false, 'Jurnal still answers for it, so it is not confirmed gone');
-  assert.equal(out.deleted, true);
-  assert.equal(out.transactionNo, 'INV-9');
-  assert.equal(state.ledger.orders[CID].voided, true);
+  assert.deepEqual(calls, ['GET /public/jurnal/api/v1/sales_invoices/77', 'POST /public/jurnal/api/v1/sales_returns']);
+  assert.ok(!calls.some((c) => c.startsWith('DELETE')));
+  assert.deepEqual(state.posted.sales_return.transaction_return_lines_attributes, [
+    { transaction_line_id: 501, return_quantity: 1 }, { transaction_line_id: 502, return_quantity: 1 },
+  ]);
+  assert.match(state.posted.sales_return.memo, /Refund #11452 dari dashboard oleh Kemas/);
+  assert.equal(out.returned, true);
+  assert.equal(out.returnNo, 'SR-5');
+  assert.equal(state.ledger.orders[CID].sales_return.no, 'SR-5');
+  assert.equal(state.ledger.orders[CID].voided, true, 'tidak diposting atau di-amend lagi');
   assert.equal(state.ledger.orders[CID].refunded, true);
   assert.equal(state.refunds.orders['shopify:#11452'].by, 'Kemas');
+  assert.equal(state.refunds.orders['shopify:#11452'].return, 'SR-5');
 });
 
 test('not invoiced yet: no Jurnal call, but the ledger is marked so the sync never posts it', async () => {
   const { calls, state, deps } = rig({ entry: null });
   const out = await refundOrder({ channel: 'shopify', id: '#11452' }, deps);
   assert.deepEqual(calls, []);
-  assert.equal(out.deleted, false);
+  assert.equal(out.returned, false);
   assert.equal(state.ledger.orders[CID].voided, true);
   assert.ok(state.refunds.orders['shopify:#11452']);
 });
 
-test('an invoice with a payment recorded is refused, and the order stays visible', async () => {
-  const { calls, state, deps } = rig({ invoice: { transaction_no: 'INV-9', payment_received_amount: 500000, deletable: true } });
-  await assert.rejects(() => refundOrder({ channel: 'shopify', id: '#11452' }, deps), /sudah menerima pembayaran/);
-  assert.deepEqual(calls, ['GET /public/jurnal/api/v1/sales_invoices/77']);
+test('a return Jurnal refuses stops everything, and the order stays visible', async () => {
+  const { state, deps } = rig({ postError: Object.assign(new Error('HTTP 422: Return quantity cannot over current quantity'), { status: 422 }) });
+  await assert.rejects(() => refundOrder({ channel: 'shopify', id: '#11452' }, deps), /ditolak Jurnal/);
   assert.equal(state.saved, 0);
   assert.equal(state.refunds, null);
 });
@@ -66,8 +77,8 @@ test('a Jurnal error other than "not found" stops everything', async () => {
 test('an invoice already gone from Jurnal still lets the order be refunded', async () => {
   const { calls, state, deps } = rig({ getError: Object.assign(new Error('Not Found'), { status: 404 }) });
   const out = await refundOrder({ channel: 'shopify', id: '#11452' }, deps);
-  assert.equal(out.deleted, false);
-  assert.equal(calls.length, 1, 'no DELETE for an invoice that is not there');
+  assert.equal(out.gone, true);
+  assert.equal(calls.length, 1, 'no return for an invoice that is not there');
   assert.ok(state.refunds.orders['shopify:#11452']);
 });
 

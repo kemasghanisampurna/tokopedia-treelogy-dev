@@ -54,6 +54,7 @@ query TreelogyOrders($cursor: String, $query: String) {
       note
       totalWeight
       createdAt
+      cancelledAt
       displayFinancialStatus
       displayFulfillmentStatus
       paymentGatewayNames
@@ -282,6 +283,9 @@ export function mapOrder(raw) {
     // The mutation addresses orders by GID; the human-facing name cannot be used.
     gid: order.id,
     createdAt: Math.floor(Date.parse(order.createdAt) / 1000),
+    // Kept so the books can tell a cancellation (its invoice deleted) from a refund (a
+    // sales return): both read REFUNDED once the money is back.
+    cancelledAt: order.cancelledAt ? Math.floor(Date.parse(order.cancelledAt) / 1000) : null,
     status: `${order.displayFinancialStatus}/${order.displayFulfillmentStatus}`,
     stage: shopifyStage(order),
     total: Math.round(Number(order.totalPriceSet?.shopMoney?.amount) || 0),

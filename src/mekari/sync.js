@@ -696,8 +696,31 @@ export function undoneRecord(outcome, at = new Date().toISOString()) {
 
 const SALES_RETURNS_PATH = '/public/jurnal/api/v1/sales_returns';
 
-/** Refunded in full on Shopify (REFUNDED, or its payment VOIDED): booked as a sales return. */
-export const isShopifyRefund = (order) => order?.channel === 'shopify' && order?.stage === 'returned';
+/**
+ * How an undone sale leaves the books (the team's rule, 20 Nov):
+ *   'return' - a refund, or a cancellation after the order was processed: a sales return,
+ *              the invoice kept;
+ *   'delete' - cancelled before it was fulfilled or processed: the invoice deleted;
+ *   null     - not final yet (IN_CANCEL, TO_RETURN): left alone, looked at again.
+ *
+ * Shopify: REFUNDED without a cancellation is a refund (#14105). A cancellation counts as
+ * before processing unless something was fulfilled; VOIDED took no money, so it is deleted.
+ * Marketplaces: a final CANCELLED with an AWB was processed - the parcel went out or was
+ * at least arranged - so it is returned; without one, deleted.
+ */
+const SHIPPED_ON_SHOPIFY = /\/(FULFILLED|PARTIALLY_FULFILLED)$/;
+export function undoneKind(order) {
+  if (!order) return null;
+  if (order.channel === 'shopify') {
+    const shipped = SHIPPED_ON_SHOPIFY.test(String(order.status ?? ''));
+    if (order.cancelledAt) return shipped ? 'return' : 'delete';
+    if (order.stage === 'returned') return /^REFUNDED\//.test(String(order.status ?? '')) ? 'return' : 'delete';
+    if (order.stage === 'cancelled') return 'delete';
+    return null;
+  }
+  if (VOID_STATUSES.has(order.status)) return String(order.tracking ?? '').trim() ? 'return' : 'delete';
+  return null;
+}
 
 /**
  * Book a Shopify refund as a Jurnal sales return, every line at its full quantity.
@@ -709,7 +732,7 @@ export const isShopifyRefund = (order) => order?.channel === 'shopify' && order?
  * would exceed the sold quantity, which Jurnal refuses - the guard if the ledger save after
  * a success is lost.
  */
-export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = null, call = mekari, now = Date.now() } = {}) {
+export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = null, call = mekari, now = Date.now(), memo = '' } = {}) {
   const customId = customIdFor(order);
   const base = { customId, id: order.id, channel: order.channel, invoiceId: entry.invoice_id, stage: order.stage, status: order.status };
   if (dryRun) return { ...base, outcome: 'dry-run' };
@@ -746,7 +769,7 @@ export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = 
         transaction_date: jurnalDate(Math.floor(now / 1000), order.channel),
         invoice_id: entry.invoice_id,
         transaction_return_lines_attributes: lines,
-        memo: `Refund ${order.id} di Shopify (${customId})`,
+        memo: `${memo || `Retur ${order.id}`} (${customId})`,
       } },
     });
     const ret = posted?.sales_return ?? posted;
@@ -765,16 +788,18 @@ export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = 
   }
 }
 
-/** The way an undone sale leaves the books: a Shopify refund is returned, the rest deleted. */
+/** The way an undone sale leaves the books, by undoneKind: returned, deleted, or left for later. */
 export function undoInvoice(order, entry, options = {}) {
-  return isShopifyRefund(order) ? returnInvoice(order, entry, options) : voidInvoice(order, entry, options);
+  if (undoneKind(order) !== 'return') return voidInvoice(order, entry, options);
+  const memo = order.channel === 'shopify' && !order.cancelledAt ? `Refund ${order.id} di Shopify` : `Batal setelah diproses ${order.id}`;
+  return returnInvoice(order, entry, { memo, ...options });
 }
 
 export async function voidInvoice(order, entry, { dryRun = true, deadlineAt = null, call = mekari } = {}) {
   const customId = customIdFor(order);
   const base = { customId, id: order.id, channel: order.channel, invoiceId: entry.invoice_id, stage: order.stage, status: order.status };
 
-  const final = VOID_STATUSES.has(order.status) || (order.channel === 'shopify' && order.stage === 'cancelled');
+  const final = undoneKind(order) !== null;
   if (!final) {
     // 'pending', not 'needs_review', and the difference is the whole point.
     //
