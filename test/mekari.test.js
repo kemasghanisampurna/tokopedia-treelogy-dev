@@ -1668,3 +1668,59 @@ test('a refund already returned by hand in Jurnal is recorded as it is, without 
   assert.equal(out.returnNo, '10001');
   assert.equal(calls.length, 1, 'satu GET saja, tanpa POST');
 });
+
+/* ---------------------------------------- the payment goes before the sales return */
+
+const paidOrder = order({ stage: 'cancelled', status: 'CANCELLED', tracking: 'SPX1' });
+const paidInvoice = (extra = {}) => ({ sales_invoice: {
+  id: 55, transaction_no: '30001', original_amount: '505000.0', deposit: '505000.0', payment_received_amount: '0.0',
+  transaction_lines_attributes: [{ id: 901, quantity: 1 }], ...extra,
+} });
+
+test('a paid invoice loses its deposit first, rewritten whole, then gets the return', async () => {
+  const calls = [];
+  const call = async (req) => {
+    calls.push(req);
+    if (req.method === 'POST') return { sales_return: { id: 8, transaction_no: 'SR-8' } };
+    if (req.method === 'PATCH') return { sales_invoice: { id: 55 } };
+    return paidInvoice();
+  };
+  const out = await returnInvoice(paidOrder, { invoice_id: 55 }, { dryRun: false, call });
+  assert.equal(out.outcome, 'returned');
+  assert.equal(out.paymentRemoved, true);
+  assert.deepEqual(calls.map((c) => c.method ?? 'GET'), ['GET', 'PATCH', 'POST'], 'pembayaran dihapus sebelum retur');
+  const patch = calls[1].body.sales_invoice;
+  assert.equal(patch.deposit, undefined);
+  assert.equal(patch.deposit_to_name, undefined);
+  assert.ok(patch.transaction_lines_attributes?.length, 'faktur dikirim utuh - PATCH Jurnal adalah replace');
+  assert.equal(undoneRecord(out, 'x').sales_return.payment_removed, true);
+});
+
+test('a rewrite that would change the sale itself is refused, and nothing is written', async () => {
+  const calls = [];
+  const call = async (req) => { calls.push(req.method ?? 'GET'); return paidInvoice({ original_amount: '999000.0' }); };
+  const out = await returnInvoice(paidOrder, { invoice_id: 55 }, { dryRun: false, call });
+  assert.equal(out.outcome, 'needs_review');
+  assert.match(out.reason, /tidak bisa dihapus otomatis/);
+  assert.deepEqual(calls, ['GET']);
+});
+
+test('a payment somebody recorded by hand is left for a person', async () => {
+  const calls = [];
+  const call = async (req) => { calls.push(req.method ?? 'GET'); return paidInvoice({ deposit: '0.0', payment_received_amount: '505000.0' }); };
+  const out = await returnInvoice(paidOrder, { invoice_id: 55 }, { dryRun: false, call });
+  assert.equal(out.outcome, 'needs_review');
+  assert.match(out.reason, /dicatat manual/);
+  assert.deepEqual(calls, ['GET']);
+});
+
+test('a return that fails after the payment went says the invoice is now unpaid', async () => {
+  const call = async (req) => {
+    if (req.method === 'POST') throw Object.assign(new Error('HTTP 422: nope'), { status: 422 });
+    if (req.method === 'PATCH') return {};
+    return paidInvoice();
+  };
+  const out = await returnInvoice(paidOrder, { invoice_id: 55 }, { dryRun: false, call });
+  assert.equal(out.outcome, 'needs_review');
+  assert.match(out.reason, /belum lunas/);
+});

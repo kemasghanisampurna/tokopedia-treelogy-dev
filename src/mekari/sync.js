@@ -690,7 +690,7 @@ export function undoneRecord(outcome, at = new Date().toISOString()) {
   if (outcome.outcome === 'needs_review') return { needs_review: outcome.reason };
   // A returned invoice still exists in Jurnal; `voided` here means "no longer a live sale
   // for us to amend or re-post", which every reader of the ledger already honours.
-  if (outcome.outcome === 'returned') return { voided: true, voided_at: at, sales_return: { id: outcome.returnId, no: outcome.returnNo, at } };
+  if (outcome.outcome === 'returned') return { voided: true, voided_at: at, sales_return: { id: outcome.returnId, no: outcome.returnNo, at, ...(outcome.paymentRemoved ? { payment_removed: true } : {}) } };
   return { voided: true, voided_at: at };
 }
 
@@ -756,6 +756,44 @@ export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = 
     return { ...base, outcome: 'returned', transactionNo: invoice.transaction_no ?? null, returnId: last.id ?? null, returnNo: last.transaction_no ?? null, existing: true };
   }
 
+  // The payment goes first (the team's rule, 20 Nov: a refunded sale was never paid for
+  // the books). An invoice with a return is no longer editable - #14105 read editable:false
+  // after return 10001 - so it cannot come after. Our own deposit is removed by rewriting
+  // the invoice without it: Jurnal's PATCH is a full replace, and a settled invoice
+  // replaced without its deposit loses that payment (redate.js refuses exactly that for a
+  // date fix). buildInvoice with no chart of accounts carries no deposit, and nothing else
+  // in it depends on the chart. A payment somebody recorded by hand is not ours to delete.
+  const received = Math.round(Number(invoice?.payment_received_amount) || 0);
+  if (received > 0) {
+    return { ...base, outcome: 'needs_review', reason: `faktur ${invoice.transaction_no ?? entry.invoice_id} punya pembayaran Rp${received.toLocaleString('id-ID')} yang dicatat manual - hapus pembayarannya di Jurnal, lalu buat retur` };
+  }
+  let paymentRemoved = false;
+  if (Math.round(Number(invoice?.deposit) || 0) > 0) {
+    const refuse = (why) => ({ ...base, outcome: 'needs_review', reason: `pembayaran faktur ${invoice.transaction_no ?? entry.invoice_id} tidak bisa dihapus otomatis: ${why} - hapus pembayaran lalu buat retur di Jurnal` });
+    let built;
+    try {
+      built = buildInvoice({ order, accounts: null });
+    } catch (error) {
+      return refuse(error.message);
+    }
+    const posted = Math.round(Number(invoice.original_amount ?? invoice.total ?? NaN));
+    // The rewrite must change nothing but the payment: a rebuild that disagrees with the
+    // invoice (a refund that removed lines, a cancelled marketplace order read as Rp0)
+    // would rewrite the sale itself.
+    if (!Number.isFinite(posted) || built.expectedTotal !== posted) {
+      return refuse(`nilai pesanan sekarang Rp${Number(built.expectedTotal).toLocaleString('id-ID')}, faktur Rp${Number.isFinite(posted) ? posted.toLocaleString('id-ID') : '?'}`);
+    }
+    const body = { ...built.sales_invoice };
+    delete body.deposit; delete body.deposit_to_name; delete body.deposit_to;
+    try {
+      await call({ method: 'PATCH', path: `/public/jurnal/api/v1/sales_invoices/${entry.invoice_id}`, body: { sales_invoice: body }, deadlineAt });
+      paymentRemoved = true;
+    } catch (error) {
+      if (isTransient(error) || error.monthly) return { ...base, outcome: failureOf(error), reason: error.message };
+      return refuse(error.message);
+    }
+  }
+
   const lines = sold
     .map((l) => ({ transaction_line_id: l.id, return_quantity: Number(l.quantity) }));
   if (lines.length === 0) {
@@ -775,14 +813,14 @@ export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = 
     const ret = posted?.sales_return ?? posted;
     return {
       ...base, outcome: 'returned', transactionNo: invoice.transaction_no ?? null,
-      returnId: ret?.id ?? null, returnNo: ret?.transaction_no ?? null,
+      returnId: ret?.id ?? null, returnNo: ret?.transaction_no ?? null, paymentRemoved,
       total: Number(ret?.original_amount ?? ret?.amount ?? NaN) || null,
     };
   } catch (error) {
     // Refused for good (a 4xx that is not the quota): recorded for a person, so the sweep
     // does not spend two requests on the same refusal every fifteen minutes.
     if (!isTransient(error) && !error.monthly) {
-      return { ...base, outcome: 'needs_review', reason: `retur penjualan ditolak Jurnal: ${error.message}` };
+      return { ...base, outcome: 'needs_review', reason: `retur penjualan ditolak Jurnal: ${error.message}${paymentRemoved ? ' (pembayaran sudah dihapus - faktur kini belum lunas, buat retur manual)' : ''}` };
     }
     return { ...base, outcome: failureOf(error), reason: error.message };
   }

@@ -1029,7 +1029,7 @@ export async function handleWrite(form, ip, user, csrf) {
     // If its goods had left the shelf, the Stok page now asks whether they came back.
     const { held } = await holdRefundFor({ channel, id, reason: 'refund' });
     const where = `${out.returned
-      ? `retur penjualan ${out.returnNo ?? ''}${out.existing ? ' (sudah ada di Jurnal)' : ''} dicatat untuk faktur ${out.transactionNo ?? out.invoiceId}`.replace('  ', ' ')
+      ? `retur penjualan ${out.returnNo ?? ''}${out.existing ? ' (sudah ada di Jurnal)' : ''} dicatat untuk faktur ${out.transactionNo ?? out.invoiceId}${out.paymentRemoved ? ', pembayarannya dihapus' : ''}`.replace('  ', ' ')
       : out.gone ? 'faktur sudah tidak ada di Jurnal' : 'belum ada faktur di Jurnal'}${held ? ', menunggu konfirmasi barang di Stok' : ''}`;
     console.log(`dashboard: refund_order ${channel} ${id} - ${where}`);
     return {

@@ -74,6 +74,7 @@ export async function refundOrder({ channel, id, by = '' }, {
     id: order.id, channel, total: Number(order.total) || 0, invoiceId,
     transactionNo: outcome?.transactionNo ?? null,
     returned: outcome?.outcome === 'returned', returnNo: outcome?.returnNo ?? null, existing: Boolean(outcome?.existing),
+    paymentRemoved: Boolean(outcome?.paymentRemoved),
     gone: outcome?.outcome === 'gone',
   };
 }
