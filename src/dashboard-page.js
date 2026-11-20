@@ -7998,14 +7998,41 @@ export function renderLabels({ orders, range, errors, shopeeShop, generatedAt, c
     var mode = b.getAttribute('value') === 'label_assign' ? 'assign' : (b.id === 'go' ? 'print' : '');
     if (!mode) return;
     e.preventDefault(); e.stopImmediatePropagation();
+    if (b.getAttribute('data-checking') === '1') return;
     var sel = document.getElementById('lb-packer');
     var who = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : '';
-    window.treelogyStockCheck(mode, who).then(function (r) {
-      if (!r.ok) return;
+    // The shelf read can take a few seconds: the button says so, instead of a click that
+    // looks like it did nothing (20 Nov: a resend "Tugaskan" showed nothing at all).
+    // Only a plain-text button is relabelled: Cetak carries its live count in a span.
+    var plain = !b.children.length, label = b.textContent;
+    b.setAttribute('data-checking', '1'); b.setAttribute('aria-busy', 'true');
+    b.style.opacity = '.6'; b.style.cursor = 'progress';
+    if (plain) b.textContent = 'Memeriksa stok\u2026';
+    function restore() {
+      b.removeAttribute('data-checking'); b.removeAttribute('aria-busy');
+      b.style.opacity = ''; b.style.cursor = '';
+      if (plain) b.textContent = label;
+    }
+    function go(asked) {
       stockPassed = true;
-      if (r.asked && mode === 'assign') assignAsked = true;
-      if (form.requestSubmit) form.requestSubmit(b); else b.click();
-      stockPassed = false; assignAsked = false;
+      if (asked && mode === 'assign') assignAsked = true;
+      // Flags always come back down, even if the submit throws - a flag left up made every
+      // later click skip the check and the question alike.
+      try { if (form.requestSubmit) form.requestSubmit(b); else b.click(); }
+      finally { stockPassed = false; assignAsked = false; }
+    }
+    var check;
+    try { check = Promise.resolve(window.treelogyStockCheck(mode, who)); }
+    catch (err) { check = Promise.reject(err); }
+    check.then(function (r) {
+      restore();
+      if (r && r.ok) go(r.asked);
+    }, function (err) {
+      // The check broke, not the shelf: the server refuses what the shelf cannot fill, so
+      // the action goes on rather than dying silently in the page.
+      restore();
+      if (window.console) console.warn('cek stok gagal, diteruskan ke server:', err);
+      go(false);
     });
   }, true);
 
