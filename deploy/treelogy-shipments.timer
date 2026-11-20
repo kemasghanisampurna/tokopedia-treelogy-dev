@@ -1,0 +1,11 @@
+# /etc/systemd/system/treelogy-shipments.timer
+[Unit]
+Description=Treelogy lacak resi Shopify setiap hari 19:00 WIB
+
+[Timer]
+# The box runs on UTC; the zone is named so the hour reads as the owner asked for it.
+OnCalendar=*-*-* 19:00:00 Asia/Jakarta
+Persistent=true
+
+[Install]
+WantedBy=timers.target

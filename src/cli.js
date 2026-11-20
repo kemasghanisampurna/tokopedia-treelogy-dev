@@ -40,6 +40,8 @@ import { restate } from './mekari/restate.js';
 import { removeDuplicates } from './mekari/dedupe.js';
 import { reconcileLedger } from './mekari/reconcile.js';
 import { syncReceived } from './received.js';
+import { syncShipments, shipmentsAlert, WINDOW_DAYS } from './shipments/sync.js';
+import { isKlikResiConfigured } from './shipments/klikresi.js';
 import { settleOpenInvoices } from './mekari/settle.js';
 import { dailyRecap } from './mekari/recap.js';
 import { syncShopifyPrices } from './shopify/prices.js';
@@ -94,6 +96,8 @@ Usage:
   npm run mekari:retry        Pesanan yang gagal masuk Jurnal & jadwal percobaannya (--now untuk paksa)
   npm run mekari:reconcile    Samakan ledger dengan isi Jurnal sebenarnya (butuh --yes)
   npm run finance:sync        Baca uang yang diterima dari marketplace (--all, --dry)
+  node bin/tts.mjs shipments:track  Lacak resi Shopify via Klik Resi, tandai DELIVERED di Shopify
+                              (--dry gratis: rencana & biaya; --limit=N; --only=<resi|#order>; --days=N)
   npm run mekari:settle       Lunasi faktur kanal online yang masih terbuka (butuh --yes)
   npm run mekari:recap        Bandingkan pesanan vs faktur per hari, seluruh korpus (mahal kuota)
   npm run mekari:redate       Perbaiki tanggal faktur agar ikut jam platformnya (butuh --yes)
@@ -1564,6 +1568,41 @@ async function cmdFinanceSync(config, args = []) {
 }
 
 /**
+ * Daily parcel check (treelogy-shipments.timer, 19:00 WIB). --dry costs nothing: it reads
+ * Supabase, Shopify and the Klik Resi balance and prints what a real run would pay for.
+ */
+async function cmdShipmentsTrack(config, args = []) {
+  if (!isKlikResiConfigured()) { console.log(fail('KLIK_RESI_API belum diisi')); return 1; }
+  const dryRun = args.includes('--dry');
+  const num = (name) => { const v = args.find((a) => a.startsWith(`--${name}=`))?.split('=')[1]; return v ? Number(v) : undefined; };
+  const only = args.find((a) => a.startsWith('--only='))?.slice('--only='.length) || null;
+  const r = await syncShipments({ dryRun, only, limit: num('limit') ?? Infinity, windowDays: num('days') ?? WINDOW_DAYS });
+
+  const s = r.skipped;
+  console.log(`\n  ${r.shipments} order Shopify ber-resi sejak ${r.window.slice(0, 10)}`);
+  console.log(`  dilewati: ${s.finished} sudah selesai · ${s.deliveredOnShopify} sudah DELIVERED di Shopify · ${s.tooFresh} baru dikirim · ${s.recentlyChecked} sudah dicek hari ini · ${s.noFulfillment} tanpa fulfillment · ${s.unknownCourier} kurir tak dikenal`);
+  console.log(`  saldo Klik Resi ${r.balance === null ? '-' : rupiah(r.balance)} · perlu dicek ${r.toTrack}${r.unaffordable ? ` · ${warn(`${r.unaffordable} tak terbayar`)}` : ''}`);
+  if (dryRun) {
+    console.log(`  ${info(`dry-run: ${r.plan.length} resi akan dicek (${rupiah(r.cost)}), ${r.remarks} tanda DELIVERED diulang; tidak ada yang dipanggil`)}`);
+    for (const p of r.plan.slice(0, 10)) console.log(`    ${p.orderId}  ${p.courier.padEnd(5)} ${p.awb}`);
+    return 0;
+  }
+  console.log(`  dilacak ${r.tracked} (${rupiah(r.cost)}) · belum dikenal kurir ${r.notFound} · sampai ${r.delivered}`);
+  console.log(`  Shopify DELIVERED: ${ok(`${r.marked.confirmed} terkonfirmasi`)}${r.marked.unconfirmed ? ` · ${warn(`${r.marked.unconfirmed} belum terkonfirmasi`)}` : ''}${r.marked.failed ? ` · ${fail(`${r.marked.failed} gagal`)}` : ''}`);
+  for (const f of r.failures.slice(0, 8)) console.log(`    ${fail(`${f.orderId} ${f.awb} [${f.step}]`)} ${f.message}`);
+
+  const alert = shipmentsAlert(r);
+  if (alert && process.env.NODE_ENV !== 'production') {
+    console.log(`  ${warn('bukan server produksi')}: peringatan tidak dikirim`);
+  } else if (alert) {
+    const sent = await sendTelegram(alert.html, { key: alert.key }).catch((error) => ({ sent: false, reason: error.message }));
+    console.log(`  telegram ${sent.sent ? 'terkirim' : `tidak dikirim (${sent.reason})`}`);
+  }
+  console.log('');
+  return r.failures.some((f) => f.step === 'lacak') ? 1 : 0;
+}
+
+/**
  * Pay off the invoices that were raised before there was an account to pay them into.
  *
  * Only the sources the platform really does settle. A consignment shop is open because
@@ -1984,6 +2023,7 @@ const COMMANDS = {
   'mekari:reconcile': cmdMekariReconcile,
   'mekari:settle': cmdMekariSettle,
   'finance:sync': cmdFinanceSync,
+  'shipments:track': cmdShipmentsTrack,
   'mekari:recap': cmdMekariRecap,
   'mekari:redate': cmdMekariRedate,
   'mekari:repool': cmdMekariRepool,

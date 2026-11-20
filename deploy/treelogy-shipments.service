@@ -1,0 +1,17 @@
+# /etc/systemd/system/treelogy-shipments.service  (run by treelogy-shipments.timer)
+[Unit]
+Description=Treelogy: lacak resi Shopify via Klik Resi -> tandai DELIVERED di Shopify
+After=treelogy.service
+
+[Service]
+Type=oneshot
+User=treelogy
+Group=treelogy
+WorkingDirectory=/opt/treelogy/app
+EnvironmentFile=/etc/treelogy/env
+Environment=NODE_ENV=production
+# Klik Resi has no webhook, so this is the push: once a day, every Shopify parcel that is
+# not known to have arrived is asked about once, within the prepaid balance. See
+# src/shipments/sync.js for what is skipped so the balance is spent on real questions.
+ExecStart=/usr/bin/node bin/tts.mjs shipments:track
+TimeoutStartSec=30min

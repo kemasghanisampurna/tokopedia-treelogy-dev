@@ -98,6 +98,7 @@ cp "$APP/deploy/treelogy.service" "$APP/deploy/treelogy-sweep.service" "$APP/dep
    "$APP/deploy/treelogy-deploy.service" "$APP/deploy/treelogy-deploy.path" \
    "$APP/deploy/treelogy-disk.service" "$APP/deploy/treelogy-disk.timer" \
    "$APP/deploy/treelogy-reviews.service" "$APP/deploy/treelogy-reviews.timer" \
+   "$APP/deploy/treelogy-shipments.service" "$APP/deploy/treelogy-shipments.timer" \
    "$APP/deploy/treelogy-finance.service" "$APP/deploy/treelogy-finance.timer" /etc/systemd/system/
 # Laporan QA disimpan satu hari - hanya bila server ini juga menjalankan QA.
 if id treelogyqa >/dev/null 2>&1; then
@@ -106,7 +107,7 @@ fi
 install -m 440 -o root -g root "$APP/deploy/treelogy-deploy.sudoers" /etc/sudoers.d/treelogy-deploy
 visudo -c -q || { echo "sudoers tidak valid, dibatalkan"; rm -f /etc/sudoers.d/treelogy-deploy; exit 1; }
 systemctl daemon-reload
-systemctl enable --now treelogy.service treelogy-finance.timer treelogy-sweep.timer treelogy-daily.timer treelogy-deploy.path treelogy-disk.timer treelogy-reviews.timer
+systemctl enable --now treelogy.service treelogy-finance.timer treelogy-sweep.timer treelogy-daily.timer treelogy-deploy.path treelogy-disk.timer treelogy-reviews.timer treelogy-shipments.timer
 if id treelogyqa >/dev/null 2>&1; then systemctl enable --now treelogy-qa-prune.timer; fi
 systemctl restart treelogy.service
 

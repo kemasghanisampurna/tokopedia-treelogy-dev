@@ -203,6 +203,48 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Perjalanan paket (Klik Resi)
+-- ---------------------------------------------------------------------------
+
+-- Ke mana paket Shopify pergi setelah diserahkan ke kurir, dibaca sekali sehari dari Klik
+-- Resi (src/shipments). Lion Parcel dan J&T tidak pernah memberi tahu Shopify bahwa paket
+-- sudah sampai; baris di sini adalah buktinya, dan shopify_marked_at mencatat kapan
+-- Shopify - dibaca balik, bukan diasumsikan - menunjukkan fulfillment-nya DELIVERED.
+--
+-- Terpisah dari orders karena ingest_orders mengganti payload pesanan setiap kali webhook
+-- atau sapuan membacanya; apa pun yang ditulis ke sana akan terhapus pada bacaan berikutnya.
+create table if not exists public.shipment_tracking (
+  channel                text        not null,
+  order_id               text        not null,
+  awb                    text        not null,
+  -- Kode kurir Klik Resi (lion, jnt, jne, ...).
+  courier                text        not null default '',
+  -- Status ternormalisasi Klik Resi: InfoReceived, InTransit, OutForDelivery, FailedAttempt,
+  -- Delivered, ReturnToSender, Exception, Expired, Pending - atau NotFound selama kurir
+  -- belum mengenal resinya.
+  status                 text        not null default '',
+  last_message           text        not null default '',
+  last_event_at          timestamptz,
+  -- Waktu kejadian Delivered menurut kurir, bukan waktu kita melihatnya.
+  delivered_at           timestamptz,
+  histories              jsonb       not null default '[]'::jsonb,
+  -- Berapa kali resi ini ditanyakan (yang berhasil ditagih Rp15, yang 400 gratis).
+  checks                 integer     not null default 0,
+  checked_at             timestamptz,
+  error                  text        not null default '',
+  shopify_fulfillment_id text        not null default '',
+  shopify_status         text        not null default '',
+  shopify_marked_at      timestamptz,
+  shopify_error          text        not null default '',
+  first_seen_at          timestamptz not null default now(),
+  updated_at             timestamptz not null default now(),
+  primary key (channel, order_id, awb)
+);
+
+create index if not exists shipment_tracking_first_seen_idx on public.shipment_tracking (channel, first_seen_at desc);
+create index if not exists shipment_tracking_status_idx     on public.shipment_tracking (status);
+
+-- ---------------------------------------------------------------------------
 -- Hak akses
 -- ---------------------------------------------------------------------------
 
@@ -212,10 +254,12 @@ $$;
 alter table public.orders          enable row level security;
 alter table public.order_lines     enable row level security;
 alter table public.ingest_coverage enable row level security;
+alter table public.shipment_tracking enable row level security;
 
 revoke all on public.orders          from anon, authenticated;
 revoke all on public.order_lines     from anon, authenticated;
 revoke all on public.ingest_coverage from anon, authenticated;
+revoke all on public.shipment_tracking from anon, authenticated;
 
 -- Postgres memberikan EXECUTE atas setiap fungsi baru kepada PUBLIC, jadi mencabutnya
 -- dari anon saja tidak menutup apa pun - anon mewarisi lewat PUBLIC. Diuji langsung
