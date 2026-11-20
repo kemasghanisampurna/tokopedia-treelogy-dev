@@ -112,25 +112,10 @@ const order = (channel, id) => ({
   buyer: 'Fika', total: 1145000, carrier: '', tracking: '', lines: [{ sku: 'OMC-270-001', qty: 1 }],
 });
 
-test('only a Shopify order offers the button, because only Shopify is edited by us', () => {
+test('no order offers a manual re-read: Shopify edits arrive on their own (20 Nov)', () => {
   const html = page([order('shopify', '#11107'), order('shopee', '260930ABC')]);
-
-  assert.match(html, /name="action" value="refresh_order"/);
-  assert.match(html, /<input type="hidden" name="order" value="#11107">/);
-  assert.match(html, /Ambil data terbaru/);
-  // One form, not two: a marketplace announces its own changes.
-  assert.equal((html.match(/value="refresh_order"/g) ?? []).length, 1);
-  assert.ok(!/value="refresh_order">\s*<input type="hidden" name="channel" value="shopify">\s*<input type="hidden" name="order" value="260930ABC"/.test(html));
-});
-
-test('the button comes back to the filter the operator was standing on', () => {
-  const html = page([order('shopify', '#11107')]);
-  assert.match(html, /name="back" value="view=orders&amp;preset=7d"/);
-});
-
-test('without a token there is no button to press', () => {
-  const html = page([order('shopify', '#11107')], { csrf: null });
   assert.ok(!/refresh_order/.test(html));
+  assert.ok(!/Ambil data terbaru/.test(html));
 });
 
 /* --------------------------------------------------------------- the way back */

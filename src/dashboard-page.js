@@ -400,32 +400,6 @@ function row(order, index) {
 }
 
 /**
- * Read this one order again, from the platform, now.
- *
- * Shopify only, because Shopify is the only channel whose orders this shop's own staff
- * edit after the fact - a product swapped, an address corrected, a line added. Every
- * screen here is drawn from our stored copy, and a marketplace announces its own changes;
- * an edit made in the Shopify admin announces nothing, so the bench keeps looking at the
- * moment before with no way to tell.
- *
- * `back` is the query string the operator is standing on, so pressing this does not throw
- * away the filter or the page they had open.
- */
-function refreshButton(order, { csrf, back }) {
-  if (order.channel !== 'shopify' || !csrf) return '';
-  return `<form class="od__sync" method="post">
-    <input type="hidden" name="csrf" value="${escape(csrf)}">
-    <input type="hidden" name="action" value="refresh_order">
-    <input type="hidden" name="channel" value="shopify">
-    <input type="hidden" name="order" value="${escape(order.id)}">
-    <input type="hidden" name="view" value="orders">
-    <input type="hidden" name="back" value="${escape(back)}">
-    <button class="od__sync__b" type="submit">${svg('refresh')}<span>Ambil data terbaru</span></button>
-    <span class="od__sync__n">Baca ulang pesanan ini dari Shopify, lalu samakan label, picklist dan semua daftar lain.</span>
-  </form>`;
-}
-
-/**
  * Throw away a sale that was typed in by mistake.
  *
  * Only a typed-in one. Every other order on this dashboard describes something that
@@ -604,7 +578,6 @@ export function orderDetail(order, index, { csrf = null, back = '' } = {}) {
       <div class="od__total"><dt>${isMarketplace(order) ? (order.received?.estimate ? 'Diterima (estimasi)' : 'Diterima') : 'Total'}</dt><dd class="mono">${orderWorth(order)}</dd></div>
     </dl>
 
-    ${refreshButton(order, { csrf, back })}
     ${discardButton(order, { csrf, back })}
     ${refundButton(order, { csrf, back })}
 
@@ -3487,17 +3460,6 @@ const ORDER_DETAIL_SCRIPT = `
       e.preventDefault();
       open(row);
     });
-  });
-
-  // One press is one intention. The read takes a second or two and the dialog stays open
-  // over it, which without this reads as nothing having happened.
-  body.addEventListener('submit', function (e) {
-    var button = e.target.querySelector('.od__sync__b');
-    if (!button) return;
-    window.setTimeout(function () {
-      button.disabled = true;
-      button.querySelector('span').textContent = 'Mengambil\u2026';
-    }, 0);
   });
 
   document.getElementById('od-close').addEventListener('click', function () { dialog.close(); });
