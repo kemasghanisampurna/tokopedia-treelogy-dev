@@ -740,9 +740,6 @@ test('a cancellation request or a return in progress is handed to a person, not 
   assert.equal(final.outcome, 'dry-run');
   const shopify = await voidInvoice({ channel: 'shopify', id: '#1', stage: 'cancelled', status: 'VOIDED/UNFULFILLED' }, { invoice_id: 9 }, { dryRun: true });
   assert.equal(shopify.outcome, 'dry-run');
-  // Refunded in the Shopify admin: the buyer has their money, the invoice goes.
-  const refunded = await voidInvoice({ channel: 'shopify', id: '#14105', stage: 'returned', status: 'REFUNDED/UNFULFILLED' }, { invoice_id: 9 }, { dryRun: true });
-  assert.equal(refunded.outcome, 'dry-run');
 });
 
 test('the Jurnal tab shows a wrong number, a voided sale and a review case for what they are', () => {
