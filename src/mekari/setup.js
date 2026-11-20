@@ -261,6 +261,9 @@ let readyKey = null;
  * remembered proof kept the check from running, and every Shopify order for them was
  * refused by Jurnal ("Product ... on row 1 not available") for fifteen hours.
  */
+/** Jurnal's refusal of an invoice whose person_name it does not hold. */
+export const PERSON_MISSING = /Person name.*not exist/i;
+
 export const PRODUCT_MISSING = /Product in transaction lines.*not available/i;
 
 export const catalogueKey = () => PRODUCTS.map((p) => p.sku).sort().join('|');
@@ -326,10 +329,12 @@ export function stampReady(ledger, now = Date.now(), { results = [] } = {}) {
  * before writing matters more here than for the four fixed channels: two contacts with
  * the same display name would quietly split that customer's history in two.
  */
-export async function ensureContact(name, { deadlineAt = null, receivableId = null, details = null, request = mekari } = {}) {
+export async function ensureContact(name, { deadlineAt = null, receivableId = null, details = null, request = mekari, force = false } = {}) {
   const wanted = String(name ?? '').trim();
   if (!wanted) throw new Error('nama pelanggan kosong');
-  if (knownContacts.has(wanted)) return { name: wanted, created: false };
+  // force: Jurnal has just refused an invoice naming this contact, so what we remember
+  // about it is wrong - ask Jurnal again instead of trusting the cache.
+  if (knownContacts.has(wanted) && !force) return { name: wanted, created: false };
   if (isReadOnly()) throw new ReadOnlyError(`kontak ${wanted}`);
 
   // What the operator typed about a new customer goes onto the contact card, in the
@@ -370,9 +375,10 @@ export async function ensureContact(name, { deadlineAt = null, receivableId = nu
     return { name: wanted, created: true };
   } catch (error) {
     // 409 means the name is taken, which is the answer we wanted.
-    if (existingIdFrom(error) === undefined) throw error;
+    const id = existingIdFrom(error);
+    if (id === undefined) throw error;
     knownContacts.add(wanted);
-    return { name: wanted, created: false };
+    return { name: wanted, created: false, id };
   }
 }
 

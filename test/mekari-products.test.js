@@ -97,3 +97,37 @@ test('any other refusal is passed through untouched, without creating anything',
   await assert.rejects(postInvoiceCreatingProducts({ sales_invoice: {} }, { post: async () => { throw other; }, ensure: async () => { ensured = true; } }), /person not exist/);
   assert.equal(ensured, false);
 });
+
+test('an invoice refused because its buyer is gone recreates the contact past the cache and posts again', async () => {
+  const { postInvoiceHealingContact } = await import('../src/mekari/sync.js');
+  const gone = new MekariError('POST /public/jurnal/api/v1/sales_invoices -> HTTP 422: "Person name person not exist"', { status: 422 });
+  let posts = 0;
+  const asked = [];
+  const post = async () => { posts += 1; if (posts === 1) throw gone; return { sales_invoice: { id: 11 } }; };
+  const ensure = async (name, opts) => { asked.push([name, opts.force, opts.receivableId]); return { name, created: true }; };
+  const out = await postInvoiceHealingContact({ sales_invoice: { custom_id: 'TRL-shopee-261120SQB2HH9D', person_name: 'vira_777' } }, { post, ensure, receivableId: 5 });
+  assert.equal(out.sales_invoice.id, 11);
+  assert.equal(posts, 2);
+  assert.deepEqual(asked, [['vira_777', true, 5]]);
+});
+
+test('a buyer Jurnal says exists but refuses on the invoice is posted once and named for a person', async () => {
+  const { postInvoiceHealingContact } = await import('../src/mekari/sync.js');
+  const gone = new MekariError('HTTP 422: "Person name person not exist"', { status: 422 });
+  let posts = 0;
+  const post = async () => { posts += 1; throw gone; };
+  const ensure = async (name) => ({ name, created: false, id: 42 });
+  await assert.rejects(
+    postInvoiceHealingContact({ sales_invoice: { person_name: 'R***n A***nti' } }, { post, ensure }),
+    /kontak "R\*\*\*n A\*\*\*nti" sudah ada di Jurnal \(id 42\).*diarsipkan/,
+  );
+  assert.equal(posts, 1);
+});
+
+test('only the missing-person refusal touches contacts', async () => {
+  const { postInvoiceHealingContact } = await import('../src/mekari/sync.js');
+  const other = new MekariError('HTTP 422: "Product in transaction lines attributes on row 1 not available"', { status: 422 });
+  let ensured = false;
+  await assert.rejects(postInvoiceHealingContact({ sales_invoice: { person_name: 'x' } }, { post: async () => { throw other; }, ensure: async () => { ensured = true; } }), /not available/);
+  assert.equal(ensured, false);
+});

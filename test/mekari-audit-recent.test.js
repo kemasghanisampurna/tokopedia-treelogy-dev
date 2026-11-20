@@ -118,3 +118,11 @@ test('a probe that throws is not read as a missing invoice', async () => {
   // failed probe reports the order. The alternative - silence - hides a real gap, and
   // the dedupe on the Telegram side means an outage says it once, not every night.
 });
+
+test('a resend is never reported missing, and Jurnal is not asked about it', async () => {
+  const asked = [];
+  const resend = order('RS-261120-0000E8N', { channel: 'manual', source: 'RS', stage: 'to_ship', total: 0 });
+  const r = await run([resend, order('A')], [], { probe: async (o) => { asked.push(o.id); return null; } });
+  assert.deepEqual(asked, ['A']);
+  assert.deepEqual(r.missingOrders.map((o) => o.id), ['A']);
+});

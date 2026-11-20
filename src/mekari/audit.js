@@ -1,5 +1,5 @@
 import { ordersInRange } from '../db/orders.js';
-import { loadSyncLedger, findExisting, POSTABLE_STAGES } from './sync.js';
+import { loadSyncLedger, findExisting, POSTABLE_STAGES, earnsRevenue } from './sync.js';
 import { customIdFor, saleValue } from './invoice.js';
 import { channelDate } from '../clock.js';
 
@@ -59,6 +59,9 @@ export async function auditRecent({
   ]);
 
   const sellable = orders
+    // A resend is never invoiced - its sale is on the order it replaces - so it is not
+    // missing from the books, and asking Jurnal about it spends a request for nothing.
+    .filter(earnsRevenue)
     .filter((o) => POSTABLE_STAGES.has(o.stage))
     .filter((o) => Number(o.createdAt) * 1000 < now - settleMs);
   // An order carrying no priced lines cannot be made into an invoice at all, so it is

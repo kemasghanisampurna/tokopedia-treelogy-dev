@@ -378,6 +378,9 @@ test('a new contact is created with the phone, email and address the operator ty
   // A name already known is never posted twice, whatever details come with it.
   await ensureContact(name, { request, details: { phone: '000' } });
   assert.equal(calls.length, 1);
+  // Unless Jurnal has just refused an invoice for it: then the cache is wrong and Jurnal is asked again.
+  await ensureContact(name, { request, force: true });
+  assert.equal(calls.length, 2);
 });
 
 test('the note reaches the invoice memo', () => {

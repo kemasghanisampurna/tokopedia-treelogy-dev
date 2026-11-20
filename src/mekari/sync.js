@@ -4,7 +4,7 @@ import { claimInvoice, releaseInvoice } from './claim.js';
 import { loadRetryBook, isDue, recordOutcomes } from './retry.js';
 import { buildInvoice, verifyInvoice, customIdFor, customerFor, normaliseCustomId, CUSTOMER_NAMES, jurnalDate } from './invoice.js';
 import { isReadOnly, ReadOnlyError } from '../stock-sync.js';
-import { ensureContact, rememberContacts, knownContactNames, stampReady, explainMissingProduct, ensureProductsFor, PRODUCT_MISSING } from './setup.js';
+import { ensureContact, rememberContacts, knownContactNames, stampReady, explainMissingProduct, ensureProductsFor, PRODUCT_MISSING, PERSON_MISSING } from './setup.js';
 import { accountMap } from './accounts.js';
 import { amendManualInvoice } from './amend.js';
 import { invoiceSignature, invoiceDrift } from './drift.js';
@@ -436,6 +436,38 @@ export async function postInvoiceCreatingProducts(payload, { deadlineAt = null, 
 }
 
 /**
+ * Post an invoice, and when Jurnal says its buyer does not exist, make the buyer and post
+ * once more.
+ *
+ * The contact cache is persisted in the ledger and never expires, so a contact that was
+ * deleted or merged in Jurnal after we first met it stays "known" here for good: every
+ * later sale of that buyer was refused with 422 "Person name person not exist" and retried
+ * for hours (vira_777 and R***n A***nti, 20 Nov). The refusal is the proof the cache is
+ * wrong, so the contact is asked for again past the cache. Created: post again. Jurnal
+ * answering 409 means a contact with that name exists but cannot take invoices - archived,
+ * as far as anyone can tell from outside - which a person has to undo, so it is said.
+ */
+export async function postInvoiceHealingContact(payload, {
+  deadlineAt = null, receivableId = null,
+  post = postInvoiceCreatingProducts, ensure = ensureContact,
+} = {}) {
+  try {
+    return await post(payload, { deadlineAt });
+  } catch (error) {
+    if (error?.status !== 422 || !PERSON_MISSING.test(`${error.message} ${JSON.stringify(error.body ?? '')}`)) throw error;
+    const name = payload.sales_invoice?.person_name;
+    if (!name) throw error;
+    const made = await ensure(name, { deadlineAt, receivableId, force: true });
+    if (!made.created) {
+      error.message = `${error.message} - kontak "${name}" sudah ada di Jurnal${made.id ? ` (id ${made.id})` : ''} tapi tidak bisa dipakai faktur; kemungkinan diarsipkan, aktifkan lagi di Jurnal`;
+      throw error;
+    }
+    console.warn(`mekari: kontak ${name} tidak ada di Jurnal, dibuat ulang untuk faktur ${payload.sales_invoice.custom_id ?? ''}`);
+    return post(payload, { deadlineAt });
+  }
+}
+
+/**
  * One post at a time per order, for the whole process.
  *
  * Shopee sent two pushes for order 260924UVXBBSDM a second apart. Both read the ledger
@@ -555,8 +587,9 @@ async function postOrderUncoordinated(order, { accounts = null, dryRun = true, d
 
   // Jurnal refuses an invoice naming a contact it does not hold, and every invoice now
   // names its own buyer, so the contact is made to exist first.
+  const receivableId = await receivableIdFor(order);
   try {
-    await ensureContact(customerFor(order), { deadlineAt, receivableId: await receivableIdFor(order) });
+    await ensureContact(customerFor(order), { deadlineAt, receivableId });
   } catch (error) {
     return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: `kontak gagal: ${error.message}`, monthly: Boolean(error.monthly), local: Boolean(error.local) };
   }
@@ -573,7 +606,7 @@ async function postOrderUncoordinated(order, { accounts = null, dryRun = true, d
     //
     // So a create that gets no answer raises UncertainWriteError, and the branch below
     // resolves the uncertainty by asking Jurnal instead of guessing.
-    const created = await postInvoiceCreatingProducts(payload, { deadlineAt });
+    const created = await postInvoiceHealingContact(payload, { deadlineAt, receivableId });
     const invoice = created?.sales_invoice ?? created;
     // Jurnal has silently stored a different number than it was sent before - shipping
     // dropped to zero without is_shipped - and the only way to know is to read back what
