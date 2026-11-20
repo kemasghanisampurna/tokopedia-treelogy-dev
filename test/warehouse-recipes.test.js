@@ -250,7 +250,7 @@ test('a batch runs from 15:00 WITA the day before to 15:00 WITA, and leaves out 
 test('an order counted before its own time was kept gets it from the next read, moving nothing', () => {
   const doc = opened();
   doc.orders = { 'shopee|Q': { at: OPENING_AT + 900, rev: 1, picked: OPENING_AT + 900, lines: { 'OMC-90-001': 1 }, items: { 'M-036': 1 } } };
-  const { doc: next, moved } = readOrders(doc, [{ ...order('Q', 'to_ship', [['OMC-90-001', 1]]), createdAt: OPENING_AT + 300, buyer: 'Rina' }]);
+  const { doc: next, moved } = readOrders(doc, [{ ...order('Q', 'to_ship', [['OMC-90-001', 1]]), createdAt: OPENING_AT + 300, buyer: 'Rina' }], { now: (OPENING_AT + 3600) * 1000 });
   assert.deepEqual(moved, []);
   assert.equal(next.orders['shopee|Q'].created, OPENING_AT + 300);
   assert.equal(next.orders['shopee|Q'].buyer, 'Rina');
