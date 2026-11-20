@@ -119,7 +119,7 @@ test('a buyer Jurnal says exists but refuses on the invoice is posted once and n
   const ensure = async (name) => ({ name, created: false, id: 42 });
   await assert.rejects(
     postInvoiceHealingContact({ sales_invoice: { person_name: 'R***n A***nti' } }, { post, ensure }),
-    /kontak "R\*\*\*n A\*\*\*nti" sudah ada di Jurnal \(id 42\).*diarsipkan/,
+    /kontak "R\*\*\*n A\*\*\*nti" sudah ada di Jurnal \(id 42\).*menolak fakturnya/,
   );
   assert.equal(posts, 1);
 });

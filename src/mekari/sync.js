@@ -444,8 +444,9 @@ export async function postInvoiceCreatingProducts(payload, { deadlineAt = null, 
  * later sale of that buyer was refused with 422 "Person name person not exist" and retried
  * for hours (vira_777 and R***n A***nti, 20 Nov). The refusal is the proof the cache is
  * wrong, so the contact is asked for again past the cache. Created: post again. Jurnal
- * answering 409 means a contact with that name exists but cannot take invoices - archived,
- * as far as anyone can tell from outside - which a person has to undo, so it is said.
+ * answering 409 means a contact with that name exists and still cannot take invoices.
+ * vira_777 (id 117222734) read back not archived, customer, exact display name - so the
+ * cause is inside Jurnal, and the message says that rather than guessing.
  */
 export async function postInvoiceHealingContact(payload, {
   deadlineAt = null, receivableId = null,
@@ -459,7 +460,7 @@ export async function postInvoiceHealingContact(payload, {
     if (!name) throw error;
     const made = await ensure(name, { deadlineAt, receivableId, force: true });
     if (!made.created) {
-      error.message = `${error.message} - kontak "${name}" sudah ada di Jurnal${made.id ? ` (id ${made.id})` : ''} tapi tidak bisa dipakai faktur; kemungkinan diarsipkan, aktifkan lagi di Jurnal`;
+      error.message = `${error.message} - kontak "${name}" sudah ada di Jurnal${made.id ? ` (id ${made.id})` : ''} (tidak diarsipkan) tapi Jurnal tetap menolak fakturnya - perlu dicek di Jurnal atau ke support Mekari`;
       throw error;
     }
     console.warn(`mekari: kontak ${name} tidak ada di Jurnal, dibuat ulang untuk faktur ${payload.sales_invoice.custom_id ?? ''}`);
