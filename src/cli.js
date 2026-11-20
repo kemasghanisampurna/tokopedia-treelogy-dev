@@ -988,7 +988,9 @@ async function cmdMekariSync(config, args = []) {
   const preview = await runSync({ orders, accounts, dryRun: true, limit: 1000 });
   printSyncResult(preview);
 
-  if (preview.considered === 0 && !preview.amendsDue) {
+  // A refund or a final cancellation is work too: before 20 Nov the sweep stopped here
+  // whenever nothing was to post, and #14105's refund waited for the nightly pass.
+  if (preview.considered === 0 && !preview.amendsDue && !preview.undoneDue) {
     // Orders backing off between retries are not in Jurnal; "all there" said they were
     // while four Shopify orders had been refused for fifteen hours.
     console.log(preview.waiting > 0

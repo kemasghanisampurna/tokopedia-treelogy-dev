@@ -748,6 +748,11 @@ export async function returnInvoice(order, entry, { dryRun = true, deadlineAt = 
       total: Number(ret?.original_amount ?? ret?.amount ?? NaN) || null,
     };
   } catch (error) {
+    // Refused for good (a 4xx that is not the quota): recorded for a person, so the sweep
+    // does not spend two requests on the same refusal every fifteen minutes.
+    if (!isTransient(error) && !error.monthly) {
+      return { ...base, outcome: 'needs_review', reason: `retur penjualan ditolak Jurnal: ${error.message}` };
+    }
     return { ...base, outcome: failureOf(error), reason: error.message };
   }
 }
@@ -1009,6 +1014,9 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
     amendsDue: pendingAmends(orders, ledger).length,
     voided: undone.filter((u) => u.outcome === 'voided').length,
     returned: undone.filter((u) => u.outcome === 'returned').length,
+    // Final cancellations and refunds a live run would act on. A dry run decides these
+    // without a request, so the sweep can tell there is work even when nothing is to post.
+    undoneDue: undone.filter((u) => u.outcome === 'dry-run').length,
     needsReview: undone.filter((u) => u.outcome === 'needs_review').length,
     // Cancellations and returns still in progress. Counted, never recorded: the next sweep
     // takes the same orders again and they stay visible until the platform makes up its

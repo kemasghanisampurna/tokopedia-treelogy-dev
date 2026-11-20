@@ -1624,3 +1624,13 @@ test('the ledger remembers the return, and the Jurnal tab says so', () => {
   const ov = overviewOf({ orders: [refunded], ledger: { orders: { 'TRL-shopify-14105': { invoice_id: 2054621338, total: 9732500, ...rec } } } });
   assert.match(ov.rows[0].reason, /retur penjualan SR-1/);
 });
+
+test('a sales return Jurnal refuses is handed to a person once, not retried every sweep', async () => {
+  const call = async (req) => {
+    if (!req.method) return soldInvoice;
+    const e = new Error('HTTP 422: Return quantity exceeds'); e.status = 422; throw e;
+  };
+  const out = await returnInvoice(refunded, { invoice_id: 2054621338 }, { dryRun: false, call });
+  assert.equal(out.outcome, 'needs_review');
+  assert.match(out.reason, /ditolak Jurnal/);
+});
