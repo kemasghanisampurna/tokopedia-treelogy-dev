@@ -183,8 +183,8 @@ export function renderWarehouse({ warehouse, reserve = null, csrf, flash, user, 
   const shown = moves.filter((m) => (!item || m.code === item) && (!kind || m.kind === kind)).slice(0, 150);
   const kindChips = [['', 'Semua'], ...Object.entries(KIND).map(([k, [l]]) => [k, l])].map(([k, l]) =>
     `<a class="chip${kind === k ? ' is-on' : ''}" href="?view=stock${item ? `&amp;item=${encodeURIComponent(item)}` : ''}${k ? `&amp;kind=${k}` : ''}#riwayat">${escape(l)}</a>`).join('');
-  // The whole log as a file - every day or a chosen range - through the picklist's own
-  // export dialog, so both pages hand over the same Inventory Movement sheet.
+  // The whole log as a file - every day or a chosen range - as the Inventory Movement
+  // sheet the team kept by hand.
   const kit = stockExport ? stockExportKit(stockExport) : null;
   const history = `<section class="wh__grp" id="riwayat"><div class="wh__hrow"><h2 class="wh__h">Riwayat gerakan${item ? ` · ${escape(items[item]?.name ?? item)}` : ''}<span>${shown.length}</span></h2>${kit ? kit.button : ''}</div>
     <div class="wh__filters">${kindChips}${item ? `<a class="chip" href="?view=stock#riwayat">${svg('x')} Semua barang</a>` : ''}</div>

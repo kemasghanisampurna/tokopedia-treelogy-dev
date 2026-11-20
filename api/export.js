@@ -110,12 +110,12 @@ export default async function handler(req, res) {
 }
 
 /**
- * The warehouse movement log, from the Export button on the picklist: jars and boxes in
- * and out, no buyer anywhere in it, so anyone who may open the picklist or the stock
+ * The warehouse movement log, from the Export button on the Stok page: jars and boxes in
+ * and out, no buyer anywhere in it, so anyone who may open the stock
  * page may take it. Read fresh, never cached - a movement made a moment ago belongs in it.
  */
 async function inventoryExport({ req, res, url, user, fail }) {
-  if (!canView(user, 'picklist') && !canView(user, 'stock')) {
+  if (!canView(user, 'stock')) {
     fail(403, 'Tidak berwenang', 'Peran ini tidak bisa mengekspor stok gudang.');
     return;
   }
@@ -128,7 +128,7 @@ async function inventoryExport({ req, res, url, user, fail }) {
     const filename = inventoryFilename(from, to, format);
     console.log(`export: inventory ${format}, ${sheet.rows.length} gerakan, ${from} s/d ${to} (${Date.now() - started}ms)`);
     await recordActivity({
-      actor: user, ip: callerIp(req), menu: 'picklist', action: 'export', verb: 'print',
+      actor: user, ip: callerIp(req), menu: 'stock', action: 'export', verb: 'print',
       target: filename,
       summary: `Mengekspor riwayat stok gudang sebagai ${format.toUpperCase()}: ${sheet.rows.length} gerakan, ${from} s/d ${to}`,
       changes: [{ field: 'Rentang', to: `${from} s/d ${to}` }],

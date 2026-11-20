@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  renderDashboard, renderPicklist, renderLabels, renderProducts, renderProcess, renderStock, renderJurnal,
+  renderDashboard, renderLabels, renderProducts, renderProcess, renderStock, renderJurnal,
   renderManual, renderForecast, renderLogin,
 } from '../src/dashboard-page.js';
 import { syncOverview } from '../src/mekari/sync.js';
 import { summarize, filterOrders } from '../src/omni.js';
-import { buildPicklist } from '../src/picklist.js';
 import { LABEL_SIZES, DEFAULT_SIZE } from '../src/labels.js';
 
 const range = { preset: '7d', from: '2026-09-01', to: '2026-09-08', label: '7 hari', since: 1, until: 2, clamped: false };
@@ -45,7 +44,6 @@ const jurnalOverview = (over = {}) => syncOverview({
 
 const pages = () => [
   ['orders', renderDashboard({ orders: [order], summary: summarize([order]), ...common })],
-  ['picklist', renderPicklist({ picklist: buildPicklist([order]), ...common })],
   ['labels', renderLabels({ orders: [order], sizes: LABEL_SIZES, defaultSize: DEFAULT_SIZE, ...common })],
   ['products', renderProducts({ catalog, ledger, ...common })],
   ['product-detail', renderProducts({ catalog, ledger, selected: 'MRS-002', ...common })],
@@ -394,7 +392,6 @@ test('a worklist carries no date filter, and says what it does cover', () => {
   // pages that exist to empty a queue are not filtered by day at all.
   for (const [name, html] of [
     ['process', renderProcess({ orders: [order], ...common })],
-    ['picklist', renderPicklist({ picklist: buildPicklist([order]), ...common })],
     ['labels', renderLabels({ orders: [order], sizes: LABEL_SIZES, defaultSize: DEFAULT_SIZE, ...common })],
   ]) {
     assert.ok(!html.includes('class="daterange"'), `${name} masih menyaring per tanggal`);

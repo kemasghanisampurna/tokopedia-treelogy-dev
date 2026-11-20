@@ -2,7 +2,7 @@ import { collectOrders, summarize } from '../src/omni.js';
 import { loadOrders, loadOutstanding, rememberOrders } from '../src/orders-source.js';
 import { isSupabaseConfigured } from '../src/db/client.js';
 import { saveOrders } from '../src/db/orders.js';
-import { renderDashboard, renderPicklist, renderProducts, renderLabels, renderLabelLookup, renderProcess, renderStock, renderJurnal, renderManual, renderForecast, renderReviews, renderExpressLog, renderLogin, dashboardError, renderOrderPicks, VALID_VIEWS } from '../src/dashboard-page.js';
+import { renderDashboard, renderProducts, renderLabels, renderLabelLookup, renderProcess, renderStock, renderJurnal, renderManual, renderForecast, renderReviews, renderExpressLog, renderLogin, dashboardError, renderOrderPicks, VALID_VIEWS } from '../src/dashboard-page.js';
 import { renderUsers } from '../src/pages/users.js';
 import { renderActivity } from '../src/pages/activity.js';
 import { renderAgent } from '../src/pages/agent.js';
@@ -115,8 +115,6 @@ async function settleWorklist(data, arranged, { now = Date.now() } = {}) {
   };
 }
 import { priceBySku } from '../src/shopify/prices.js';
-import { buildPicklist, batchOrders, batchesIn } from '../src/picklist.js';
-import { picklistPdf } from '../src/picklist-pdf.js';
 import { movementsByDay, FIRST_DAY } from '../src/export/inventory.js';
 import { readCatalog } from '../src/inventory.js';
 import { LISTING_CHANNELS, refOf, diffPatch, isManaged, UNMANAGED_MESSAGE } from '../src/listing.js';
@@ -129,11 +127,10 @@ import { loadLedger, setSku, emptyLedger, LEDGER_PATHNAME } from '../src/ledger.
 import { updateDoc } from '../src/store/index.js';
 import { planSync, applySync, applyPrice, writeAudit, CHANNEL_LABEL } from '../src/stock-sync.js';
 import { followAfterOrder, followStock } from '../src/stock-watch.js';
-import { warehouseAfterOrder, warehouseSweep, syncWarehouse, loadWarehouse, recordMove, recordReceipt, recordSwap, saveRecipe, holdRefundFor, decideRefund } from '../src/warehouse-run.js';
+import { warehouseAfterOrder, warehouseSweep, loadWarehouse, recordMove, recordReceipt, recordSwap, saveRecipe, holdRefundFor, decideRefund } from '../src/warehouse-run.js';
 import { batchOf, resendSwap } from '../src/warehouse.js';
 import { loadReceived, applyReceived } from '../src/received.js';
 import { renderWarehouse } from '../src/pages/warehouse.js';
-import { renderPickHistory } from '../src/pages/pick-history.js';
 import { resolveRange } from '../src/range.js';
 import { cached, invalidate } from '../src/cache.js';
 import { runSync, loadSyncLedger, syncOverview, postManual, manualCodes } from '../src/mekari/sync.js';
@@ -361,7 +358,7 @@ export const ordersFor = (range) => cached(
  * was ordered. The three pages that exist to empty a queue must never be filtered by
  * date, or Friday's unarranged order is invisible on Monday.
  */
-const OUTSTANDING_VIEWS = new Set(['process', 'picklist', 'labels']);
+const OUTSTANDING_VIEWS = new Set(['process', 'labels']);
 const outstandingOrders = () => cached('orders:outstanding', ordersTtl(), loadOutstanding, SWR);
 
 /*
@@ -2941,50 +2938,6 @@ export default async function handler(req, res) {
       // expiring after two hours, and a doorbell is not a record.
       console.log(`dashboard/express: ${data.orders.length} orders in range (${took()})`);
       send(200, renderExpressLog({ user, ...data, range, csrf, flash }));
-      return;
-    }
-
-    if (view === 'picklist' && url.searchParams.get('history') === '1') {
-      // Every confirmation by day, from the warehouse's own history: read fresh, never
-      // from the cache, so a confirmation made a moment ago is already here.
-      const warehouse = await loadWarehouse();
-      console.log(`dashboard/picklist-history: ${(warehouse.picks ?? []).length} konfirmasi`);
-      send(200, renderPickHistory({ user, warehouse, images: await imagesByKey(), date: String(url.searchParams.get('date') ?? ''), range, errors: {}, shopeeShop: null, generatedAt: Date.now(), csrf, flash }));
-      return;
-    }
-
-    if (view === 'picklist') {
-      // The same settling as the process view, sharing its cooldown: a picker sent after
-      // a parcel cancelled an hour ago has walked the shelves for nothing.
-      const arrangedNow = await arrangedOrders().catch(() => ({}));
-      const picking = await settleWorklist(data, arrangedNow);
-      data = picking.data;
-      // Whatever has reached the picklist leaves the shelf now - counted here as well as
-      // on every push and sweep, so the list and the stock can never disagree. Idempotent.
-      await syncWarehouse(data.orders, { arranged: arrangedNow }).catch((error) => console.warn(`dashboard/picklist: gudang tidak tercatat - ${error.message}`));
-      const shelf = await loadWarehouse();
-      const current = batchOf(Math.floor(Date.now() / 1000));
-      const asked = String(url.searchParams.get('batch') ?? '');
-      const date = /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : current;
-      const orders = batchOrders(shelf, date, data.orders);
-      const picklist = buildPicklist(orders);
-      if (url.searchParams.get('format') === 'pdf') {
-        // The same batch, as an A4 sheet to print and tick off at the shelf.
-        const mode = ['items', 'orders'].includes(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'all';
-        const pdf = await picklistPdf({ date, orders, picklist, images: await imagesByKey(), mode });
-        const suffix = { items: '-per-produk', orders: '-per-transaksi', all: '' }[mode];
-        console.log(`dashboard/picklist: pdf batch ${date} ${mode} ${picklist.orderCount} pesanan (${took()})`);
-        send(200, Buffer.from(pdf), { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="picklist-batch-${date}${suffix}.pdf"` });
-        return;
-      }
-      console.log(`dashboard/picklist: batch ${date} ${picklist.orderCount} pesanan, ${picklist.unitCount} unit (${took()})`);
-      send(200, renderPicklist({ user,
-        ...data, orders, range, picklist, csrf, flash, images: await imagesByKey(),
-        batch: { date, current, list: batchesIn(shelf) },
-        readAt: picking.readAt, settleFailed: picking.failed,
-        // The Export button's sheet says what a range holds before anyone downloads it.
-        stockExport: { today: businessToday(), first: FIRST_DAY, days: movementsByDay(shelf) },
-      }));
       return;
     }
 

@@ -26,7 +26,7 @@ test('an admin can hand out the factory role', () => {
 
 test('the factory opens only the stock and forecast views, and lands on stock', () => {
   for (const view of ['stock', 'forecast']) assert.ok(canView(factory, view), view);
-  for (const view of ['orders', 'process', 'picklist', 'labels', 'products', 'reviews', 'users', 'jurnal', 'activity', 'express']) {
+  for (const view of ['orders', 'process', 'labels', 'products', 'reviews', 'users', 'jurnal', 'activity', 'express']) {
     assert.equal(canView(factory, view), false, view);
   }
   assert.equal(homeView(factory), 'stock');
