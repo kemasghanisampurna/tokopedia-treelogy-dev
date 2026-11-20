@@ -685,7 +685,13 @@ export async function voidInvoice(order, entry, { dryRun = true, deadlineAt = nu
   const customId = customIdFor(order);
   const base = { customId, id: order.id, channel: order.channel, invoiceId: entry.invoice_id, stage: order.stage, status: order.status };
 
-  const final = VOID_STATUSES.has(order.status) || (order.channel === 'shopify' && order.stage === 'cancelled');
+  // A Shopify order fully refunded (REFUNDED) or with its payment voided (VOIDED) is as
+  // final as a cancellation: the money is already back with the buyer, and nothing on
+  // Shopify will undo it. Left out, #14105 (refunded in the Shopify admin) kept
+  // its Rp9.7M invoice, 'pending' on every sweep. A partial refund is not 'returned' and
+  // stays in the books, amended by the order edit.
+  const final = VOID_STATUSES.has(order.status)
+    || (order.channel === 'shopify' && (order.stage === 'cancelled' || order.stage === 'returned'));
   if (!final) {
     // 'pending', not 'needs_review', and the difference is the whole point.
     //
