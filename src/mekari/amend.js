@@ -93,7 +93,9 @@ async function amendNow(order, {
   const entry = ledger.orders?.[customId] ?? null;
   const invoiceId = entry?.voided ? null : (entry?.invoice_id ?? null);
 
-  const chart = accounts ?? await postingAccounts();
+  // The chart matters only to an invoice that will be rewritten. Reading it for a sale with
+  // none would make correcting a queued one wait for Jurnal to come back.
+  const chart = accounts ?? (invoiceId ? await postingAccounts() : null);
   const built = buildInvoice({ order, accounts: chart });
   // The same check the create path makes, on the same builder: an invoice whose lines do
   // not add up to its own total is one nobody can explain afterwards.

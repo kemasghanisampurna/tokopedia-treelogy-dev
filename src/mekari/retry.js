@@ -189,6 +189,34 @@ export async function retryNow() {
   return Object.keys(book?.orders ?? {}).length;
 }
 
+/**
+ * Put a sale in the book without counting a failure against it.
+ *
+ * For one saved while Jurnal was out of reach. The sweep reads a week of orders, and a
+ * slip back-dated further than that would otherwise be saved and never invoiced. An entry
+ * already there knows more than this does, so it is left as it is.
+ */
+export async function queueForRetry(customId, order, error, { now = Date.now() } = {}) {
+  await updateDoc(RETRY_DOC, (current) => {
+    const entries = { ...(current?.orders ?? {}) };
+    entries[customId] ??= {
+      channel: order.channel,
+      order_id: order.id,
+      attempts: 0,
+      first_failed_at: new Date(now).toISOString(),
+      last_at: new Date(now).toISOString(),
+      next_at: 0,
+      error: String(error ?? 'tanpa alasan').slice(0, 400),
+      total: order.total ?? null,
+      customer: order.customer ?? order.buyer ?? null,
+      ordered_at: order.createdAt ?? null,
+      alerted_attempts: 0,
+      alerted_at: null,
+    };
+    return { ...EMPTY, ...current, orders: entries, updated_at: new Date(now).toISOString() };
+  }, structuredClone(EMPTY));
+}
+
 /** Drop an entry by hand, for a sale that is never going to be invoiced. */
 export async function forgetRetry(customId) {
   await updateDoc(RETRY_DOC, (current) => {

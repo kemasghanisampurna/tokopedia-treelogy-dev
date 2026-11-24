@@ -3,6 +3,7 @@ import { customIdFor } from './invoice.js';
 import { loadSyncLedger, saveSyncLedger, isMissingInvoice } from './sync.js';
 import { orderById, deleteOrder } from '../db/orders.js';
 import { isManualSource } from './prefix.js';
+import { forgetRetry } from './retry.js';
 import { invalidate } from '../cache.js';
 
 /**
@@ -67,7 +68,7 @@ export async function invoiceGone(call, invoiceId) {
  */
 export async function discardManual(id, {
   read = orderById, drop = deleteOrder, call = mekari,
-  loadLedger = loadSyncLedger, saveLedger = saveSyncLedger,
+  loadLedger = loadSyncLedger, saveLedger = saveSyncLedger, forget = forgetRetry,
 } = {}) {
   const code = String(id ?? '').trim();
   if (!code) throw new Error('tidak ada transaksi yang disebut');
@@ -106,6 +107,8 @@ export async function discardManual(id, {
   }
 
   const removed = await drop('manual', code);
+  // Otherwise the sweep keeps looking for a sale that is gone, and reports it as stuck.
+  await forget(customId);
 
   invalidate('orders');
   invalidate('jurnal');

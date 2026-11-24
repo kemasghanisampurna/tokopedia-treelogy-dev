@@ -133,7 +133,8 @@ import { loadReceived, applyReceived } from '../src/received.js';
 import { renderWarehouse } from '../src/pages/warehouse.js';
 import { resolveRange } from '../src/range.js';
 import { cached, invalidate } from '../src/cache.js';
-import { runSync, loadSyncLedger, syncOverview, postManual, manualCodes } from '../src/mekari/sync.js';
+import { runSync, loadSyncLedger, syncOverview, postManual, manualCodes, isOutage } from '../src/mekari/sync.js';
+import { queueForRetry, forgetRetry } from '../src/mekari/retry.js';
 import { postingAccounts } from '../src/mekari/accounts.js';
 
 /**
@@ -146,7 +147,7 @@ import { postingAccounts } from '../src/mekari/accounts.js';
 const POOLED_LABEL = 'akun penampung per kanal';
 import { buildManualOrder, buildResend, formatManualCode, encodeSequence, manualOutcome } from '../src/mekari/manual.js';
 import { reserveManualSequence } from '../src/mekari/sequence.js';
-import { buildInvoice, verifyInvoice } from '../src/mekari/invoice.js';
+import { buildInvoice, verifyInvoice, customIdFor } from '../src/mekari/invoice.js';
 import { listContacts, ensureProductsFor } from '../src/mekari/setup.js';
 import { wibDate } from '../src/range.js';
 import { channelToday, channelDate, businessToday } from '../src/clock.js';
@@ -178,6 +179,9 @@ import {
  */
 
 const PATH = '/api/dashboard';
+
+// How long somebody at the counter waits on Jurnal before the sale is saved without it.
+const MANUAL_POST_MS = 25_000;
 
 // Orders churn fastest, the catalogue slower, the ledger only when we write it.
 const ORDERS_TTL_MS = 45_000;
@@ -2037,9 +2041,24 @@ export async function handleWrite(form, ip, user, csrf) {
       throw new Error(`kode ${order.id} sudah dipakai transaksi lain; buka formulir lagi untuk kode baru`);
     }
 
+    // One saved while Jurnal was out is in the orders table and not yet in the ledger.
+    if (isSupabaseConfigured()) {
+      const existing = await ordersByIds([{ channel: 'manual', id: order.id }]).catch(() => []);
+      if (existing.length > 0) {
+        throw new Error(`kode ${order.id} sudah dipakai transaksi lain; buka formulir lagi untuk kode baru`);
+      }
+    }
+
     // A typed-in sale is never auto-paid, so the chart only matters for the shape of the
     // payload - but it is read all the same, so manual and marketplace go through one path.
-    const accounts = await postingAccounts();
+    // Unreadable because Jurnal is out, nothing is sent at all: a contact created without
+    // its receivable keeps the wrong one for good.
+    let outage = null;
+    const accounts = await postingAccounts({ deadlineAt: Date.now() + MANUAL_POST_MS }).catch((error) => {
+      if (!isOutage(error)) throw error;
+      outage = error.message;
+      return null;
+    });
     const built = buildInvoice({ order, accounts });
     verifyInvoice(built, built.expectedTotal);
 
@@ -2054,17 +2073,16 @@ export async function handleWrite(form, ip, user, csrf) {
       throw new Error(`${order.id} valid senilai ${built.expectedTotal}, tapi MEKARI_SYNC_LIVE belum disetel`);
     }
 
-    const result = await postManual({ order, accounts, dryRun: false });
+    const customId = customIdFor(order);
+    const result = outage
+      ? { customId, status: 'queued', error: outage }
+      : await postManual({ order, accounts, dryRun: false, deadlineMs: MANUAL_POST_MS });
     if (result.status === 'failed') {
       await notifySyncFailures({ source: 'transaksi manual', results: [result] });
       throw new Error(`${order.id}: ${result.error}`);
     }
-    invalidate('jurnal');
-    console.log(`dashboard: manual_invoice ${order.id} -> ${result.status}`);
-    // A sale typed in here is goods off the same shelf as a marketplace order, so it comes
-    // off every channel the same way. Not awaited: the operator is waiting for the page.
-    void followAfterOrder(order);
-    void warehouseAfterOrder(order);
+    const queued = result.status === 'queued';
+    if (queued && !isSupabaseConfigured()) throw new Error(`${order.id}: ${result.error}`);
 
     // The order list and the invoice printer both read the orders table, and nothing else
     // will ever put a typed-in sale there. The sale is in Jurnal either way - that is the
@@ -2087,6 +2105,24 @@ export async function handleWrite(form, ip, user, csrf) {
       }
     }
     if (!listed) console.warn(`dashboard: manual_invoice ${order.id} tidak masuk tabel pesanan - ${listError}`);
+
+    if (queued && !listed) {
+      // In neither place. Nothing may go on as though it were saved, stock included.
+      await forgetRetry(customId);
+      throw new Error(`${order.id} belum tersimpan: Jurnal bermasalah dan daftar pesanan menolak (${listError})`);
+    }
+    if (queued) {
+      // The sale is safe in the table by now, so a book that cannot be written is logged
+      // rather than thrown: the sweep still finds anything from the last seven days.
+      await queueForRetry(customId, order, result.error)
+        .catch((error) => console.warn(`dashboard: manual_invoice ${order.id} tidak masuk antrean - ${error.message}`));
+    }
+    invalidate('jurnal');
+    console.log(`dashboard: manual_invoice ${order.id} -> ${result.status}${queued ? ` (${String(result.error).slice(0, 160)})` : ''}`);
+    // A sale typed in here is goods off the same shelf as a marketplace order, so it comes
+    // off every channel the same way. Not awaited: the operator is waiting for the page.
+    void followAfterOrder(order);
+    void warehouseAfterOrder(order);
 
     const outcome = manualOutcome({
       status: result.status, error: result.error, id: order.id,

@@ -454,6 +454,10 @@ export function manualOutcome({ status, error = '', id, total, listed = true, li
   if (status === 'exists') {
     return { kind: 'ok', message: `${id} sudah ada di Jurnal, tidak dibuat dua kali` };
   }
+  if (status === 'queued') {
+    // Saved, and said to be only that. No celebration: that one means "in the books".
+    return { kind: 'ok', message: `${id} tersimpan di daftar pesanan senilai ${amount}. Jurnal sedang bermasalah, fakturnya dikirim otomatis begitu pulih` };
+  }
   if (status === 'mismatch') {
     return { kind: 'error', message: `${id}: ${error}` };
   }

@@ -88,6 +88,19 @@ export function isTransient(error) {
   return /tenggat habis|tidak terjangkau|ECONNRESET|ETIMEDOUT|fetch failed/i.test(String(error?.message ?? ''));
 }
 
+/**
+ * Whether the trouble is Jurnal's, or the road to it, rather than the sale's.
+ *
+ * Wider than isTransient on purpose. On 24 Nov 2026 Mekari's own firewall answered 403 to
+ * every request, and a 403 is a 4xx - "not like this" - though nothing on the form could
+ * have changed it. The question here is only whether the person typing could fix it: a
+ * 422 or a 400 they can, so it is still refused to their face. A refused credential, a
+ * firewall, a spent package, a server that does not answer, they cannot.
+ */
+export const isOutage = (error) => Boolean(
+  error && (error.uncertain || error.status === 401 || error.status === 403 || isTransient(error)),
+);
+
 const failureOf = (error) => (isTransient(error) ? 'deferred' : 'failed');
 
 /** Stages that represent money actually earned. */
@@ -590,9 +603,14 @@ async function postOrderUncoordinated(order, { accounts = null, dryRun = true, d
   // names its own buyer, so the contact is made to exist first.
   const receivableId = await receivableIdFor(order);
   try {
-    await ensureContact(customerFor(order), { deadlineAt, receivableId });
+    await ensureContact(customerFor(order), {
+      deadlineAt, receivableId,
+      // A typed-in sale saved while Jurnal was out meets its contact here for the first
+      // time, so the card it would have had at the counter goes with it.
+      ...(order.channel === 'manual' ? { details: { phone: order.buyerPhone, email: order.buyerEmail, address: order.shipTo } } : {}),
+    });
   } catch (error) {
-    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: `kontak gagal: ${error.message}`, monthly: Boolean(error.monthly), local: Boolean(error.local) };
+    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: `kontak gagal: ${error.message}`, monthly: Boolean(error.monthly), local: Boolean(error.local), outage: isOutage(error) };
   }
 
   try {
@@ -662,7 +680,7 @@ async function postOrderUncoordinated(order, { accounts = null, dryRun = true, d
       }
       return { customId, id: order.id, channel: order.channel, status: 'exists', invoiceId: known, total: expectedTotal };
     }
-    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: error.message, monthly: Boolean(error.monthly), local: Boolean(error.local) };
+    return { customId, id: order.id, channel: order.channel, status: failureOf(error), error: error.message, monthly: Boolean(error.monthly), local: Boolean(error.local), outage: isOutage(error) };
   }
 }
 
@@ -1139,15 +1157,38 @@ async function runBatch({ orders, accounts, dryRun, limit, deadlineMs = null }) 
  * contacts created at setup. Everything after that is the ordinary path - same mapper,
  * same total check, same idempotency key - because a manual sale is a sale.
  */
-export async function postManual({ order, accounts = null, dryRun = true }) {
+export async function postManual({
+  order, accounts = null, dryRun = true, deadlineMs = null,
+  contact = ensureContact, sync = runSync, receivable = receivableIdFor,
+}) {
+  // Jurnal being out of reach is not a reason to lose a sale that happened at the counter.
+  // 'queued' is that answer: nothing is known to be wrong with the sale, it is not in the
+  // books, and the sweep will put it there. The caller owns saving it somewhere first.
+  const queued = (error) => ({
+    customId: customIdFor(order), id: order.id, channel: order.channel, status: 'queued', error,
+  });
+  const started = Date.now();
   if (!dryRun && order.customer) {
-    await ensureContact(order.customer, {
-      receivableId: await receivableIdFor(order),
-      details: { phone: order.buyerPhone, email: order.buyerEmail, address: order.shipTo },
-    });
+    try {
+      await contact(order.customer, {
+        deadlineAt: deadlineMs ? started + deadlineMs : null,
+        receivableId: await receivable(order),
+        details: { phone: order.buyerPhone, email: order.buyerEmail, address: order.shipTo },
+      });
+    } catch (error) {
+      if (!isOutage(error)) throw error;
+      return queued(`kontak gagal: ${error.message}`);
+    }
   }
-  const result = await runSync({ orders: [order], accounts, dryRun, limit: 1, lock: false });
-  return result.results[0] ?? { status: 'failed', error: 'tidak ada yang diproses' };
+  const left = deadlineMs ? Math.max(1, deadlineMs - (Date.now() - started)) : null;
+  const run = await sync({ orders: [order], accounts, dryRun, limit: 1, lock: false, deadlineMs: left });
+  const result = run.results[0];
+  if (!result) {
+    return run.ranOutOfTime ? queued('Jurnal terlalu lambat menjawab') : { status: 'failed', error: 'tidak ada yang diproses' };
+  }
+  // A deferral is the sync's own word for "not now", which is all the operator needs.
+  if (result.status === 'deferred' || (result.status === 'failed' && result.outage)) return queued(result.error);
+  return result;
 }
 
 /** Codes already used by typed-in transactions, so a suggested one cannot collide. */
