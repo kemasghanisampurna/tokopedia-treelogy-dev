@@ -44,7 +44,7 @@ test('the packer sees one row per parcel with its own print button, and none of 
   assert.match(html, /class="pq__row" data-key="shopify:#1"/);
   assert.match(html, /data-print="shopify:#1"/, 'a print button per row');
   assert.doesNotMatch(html, /type="checkbox" name="order"/, 'nothing to tick, one at a time');
-  assert.match(html, /"name":"Organic Moringa Capsules","variant":"90","qty":2,"sku":"OMC-90-001","img":"https:\/\/img.example\/caps90.jpg"/, 'what goes in the box, with its picture');
+  assert.match(html, /"name":"Moringa Capsules","variant":"90 caps","qty":2,"sku":"OMC-90-001","img":"https:\/\/img.example\/caps90.jpg"/, 'what goes in the box, with its picture');
   assert.match(html, /Laptop packing siap/);
   assert.match(html, /<dialog class="pq__sheet"/);
   assert.doesNotMatch(html, /Tandai sudah dicetak|Cetak ulang|name="packer"|id="lbq"|class="pagehead"|<div class="strip">/);
@@ -53,6 +53,22 @@ test('the packer sees one row per parcel with its own print button, and none of 
   assert.match(offline, /format: format/);
   const none = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments, packers: [packer] });
   assert.match(none, /Belum ada paket yang ditugaskan kepadamu/);
+});
+
+test('the packer reads catalogue names, the same for every channel, on both tabs', () => {
+  const sold = (channel, id, line) => ({ ...order(id, 'W'), channel, status: channel === 'shopee' ? 'PROCESSED' : '', lines: [line] });
+  const orders = [
+    sold('shopee', 'S1', { sku: 'The-IO60-Protocol180+30', name: 'TREELOGY - Inside Out Moringa Protocol 60 Days | Paket Set Suplemen', variant: 'The Inside Out 60', qty: 1 }),
+    sold('shopify', '#2', { sku: 'Inside-Out-60-Protocol180+30', name: 'Inside Out Moringa Protocol', variant: '60 Days', qty: 1 }),
+  ];
+  const mine = applyAssign(null, ['shopee:S1', 'shopify:#2'], packer, agas);
+  const goodsIn = (html) => [...html.matchAll(/class="pq__goods">(.*?)<\/script>/g)].flatMap((m) => JSON.parse(m[1])).map((g) => `${g.name} / ${g.variant}`);
+  const same = 'Inside Out Protocol 60 Days / Caps 180 + Oil 30ml';
+  const todo = renderLabels({ ...base, arranged: { S1: 1, '#2': 1 }, user: packer, isPacker: true, orders, assignments: mine, packers: [packer] });
+  assert.deepEqual(goodsIn(todo), [same, same]);
+  const done = renderLabels({ ...base, user: packer, isPacker: true, orders: [], assignments: mine, packers: [packer], packerDone: orders.map((o) => ({ order: o, entry: { at: 1794271940, times: 1 } })) });
+  assert.deepEqual(goodsIn(done), [same, same]);
+  assert.doesNotMatch(todo + done, /Paket Set Suplemen/);
 });
 
 test('whoever may write gets the hand-out tools, the chip on the row and a pile per packer', () => {

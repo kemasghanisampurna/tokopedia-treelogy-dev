@@ -6114,14 +6114,6 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
  */
 /* ------------------------------------------------------------ the packer's page */
 
-/** A product's picture by its SKU, its master SKU, or its first part. */
-function photoFor(images, sku) {
-  const product = findProduct(sku);
-  const hit = images[sku] ?? (product && images[product.sku])
-    ?? (product?.components ?? []).map((c) => images[c.sku] ?? images[findProduct(c.sku)?.sku]).find(Boolean);
-  return hit?.thumb || hit?.url || '';
-}
-
 /**
  * One parcel at a time.
  *
@@ -6130,12 +6122,16 @@ function photoFor(images, sku) {
  * ticking, no batches. Pressing it opens a sheet that shows what goes into this box,
  * with pictures, and follows the label until it is on paper.
  */
-/** What goes into one box, for the sheet: name, variant, qty, picture. */
+/**
+ * What goes into one box, for the sheet: name, variant, qty, picture.
+ *
+ * Named as the Produk page names it (boardGoods), never by the channel's listing title: the
+ * same jar sold on Shopee, Tokopedia and Shopify reads the same to whoever packs it.
+ */
 function packGoods(o, images) {
-  const lines = (o.lines ?? []).filter((l) => (Number(l.qty) || 0) > 0);
-  const units = lines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
-  const goods = lines.map((l) => ({ name: l.name || l.sku, variant: l.variant || '', qty: Number(l.qty) || 0, sku: l.sku || '', img: photoFor(images, l.sku) }));
-  return { lines, units, goods, json: JSON.stringify(goods).replace(/</g, '\\u003c') };
+  const goods = boardGoods(o.lines, images).map(({ name, variant, qty, sku, img }) => ({ name, variant, qty, sku, img }));
+  const units = goods.reduce((n, g) => n + g.qty, 0);
+  return { units, goods, json: JSON.stringify(goods).replace(/</g, '\\u003c') };
 }
 
 const clockOf = (at) => new Date((at + offsetSeconds()) * 1000).toISOString().slice(11, 16);
@@ -6163,13 +6159,13 @@ function packerDoneList(done, images, today) {
   }
   return [...days].map(([day, items]) => `<li class="pq__day" data-day="${escape(day)}"><h3 class="pq__dayh">${escape(dayHeading(day, today))}<span class="mono">${items.length}</span></h3>
     <ul class="pq__list">${items.map(({ order: o, entry }) => {
-      const { lines, units, json } = packGoods(o, images);
+      const { units, goods, json } = packGoods(o, images);
       return `<li class="pq__row pq__row--done" data-state="done" data-key="${escape(`${o.channel}:${o.id}`)}">
         <button class="pq__open" type="button" data-view aria-label="Lihat isi paket ${escape(o.id)}">
           <span class="pq__main">
             <span class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></span>
             <span class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</span>
-            <span class="pq__sum">${units} barang &middot; ${lines.length} produk${entry.times > 1 ? ` &middot; dicetak ${entry.times}&times;` : ''}</span>
+            <span class="pq__sum">${units} barang &middot; ${goods.length} produk${entry.times > 1 ? ` &middot; dicetak ${entry.times}&times;` : ''}</span>
           </span>
           <span class="pq__stamp"><span class="pq__tick" aria-hidden="true">${svg('check')}</span><span class="mono">${clockOf(entry.at)}</span></span>
         </button>
@@ -6182,7 +6178,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
   const online = Boolean(bench?.online);
   const printerName = bench?.agent?.name || 'printer gudang';
   const list = rows.map(({ order: o, readiness }) => {
-    const { lines, units, json: goodsJson } = packGoods(o, images);
+    const { units, goods, json: goodsJson } = packGoods(o, images);
     const key = `${o.channel}:${o.id}`;
     // Nothing on the shelf to pack: no label, and the row says what is missing.
     // The page keeps holding `data-need` against the shelf as it moves (PACKER_SCRIPT).
@@ -6201,7 +6197,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       <div class="pq__main">
         <div class="pq__top">${channelTag(o)}<span class="mono pq__id">${escape(o.id)}</span></div>
         <div class="pq__buyer">${escape(o.buyer) || '<span class="dim">&mdash;</span>'}</div>
-        <div class="pq__sum">${units} barang &middot; ${lines.length} produk${readiness.changed ? ` &middot; <span class="stop">data berubah${what ? `: ${escape(what)}` : ''}</span>` : ''}</div>
+        <div class="pq__sum">${units} barang &middot; ${goods.length} produk${readiness.changed ? ` &middot; <span class="stop">data berubah${what ? `: ${escape(what)}` : ''}</span>` : ''}</div>
         <div class="pq__short" role="note"${short.length ? '' : ' hidden'}>${svg('warn')}<span>${escape(shortageText(short))}</span></div>
       </div>
       <button class="cta pq__go" type="button" data-print="${escape(key)}"${gone ? ' disabled' : ''} aria-label="Cetak label ${escape(o.id)}">
