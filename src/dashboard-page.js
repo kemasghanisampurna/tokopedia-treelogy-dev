@@ -19,6 +19,7 @@ import { can, canView, homeView, ROLES } from './users.js';
 import { assignmentFor, mayPrint, printedStill } from './label-assign.js';
 import { shortagesFor, shortageText, needsFor } from './warehouse-reserve.js';
 import { boardGoods } from './label-board.js';
+import { packList } from './pack-list.js';
 import { phoneForCourier } from './phone.js';
 
 /** Server-rendered omnichannel dashboard. No secrets and no user input reach the markup unescaped. */
@@ -97,6 +98,10 @@ icon.grid = '<path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6
 icon.list = '<path d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>';
 icon.image = '<path d="m2.25 15.75 5.16-5.16a2.25 2.25 0 0 1 3.18 0l5.16 5.16m-1.5-1.5 1.41-1.41a2.25 2.25 0 0 1 3.18 0l2.91 2.91m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/>';
 icon.close = '<path d="M6 6l12 12M18 6 6 18"/>';
+// Shelf items with no photo of their own, on the packer's sheet.
+icon.bowl = '<path d="M3 11h18a9 9 0 0 1-5.5 8.3V20a.75.75 0 0 1-.75.75h-5.5A.75.75 0 0 1 8.5 20v-.7A9 9 0 0 1 3 11Z"/><path d="M6.5 14.25c.4 1 1 1.8 1.8 2.5"/><path d="M3 11 1.75 9.75"/>';
+icon.crate = '<path d="M3.5 9.5h17v9.25a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5V9.5Z"/><path d="M2.75 5.25A1.5 1.5 0 0 1 4.25 3.75h15.5a1.5 1.5 0 0 1 1.5 1.5V9.5H2.75V5.25Z"/><path d="M9.5 13.5h5"/>';
+icon.pouch = '<path d="M7.5 7.5c-2 2.25-3.25 5-3.25 7.75 0 3.5 2.5 5 7.75 5s7.75-1.5 7.75-5c0-2.75-1.25-5.5-3.25-7.75"/><path d="M6.75 7.5h10.5M8 7.5 6.75 3.75h10.5L16 7.5"/>';
 icon.arrow = '<path d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/>';
 icon.user = '<circle cx="12" cy="8" r="3.75"/><path d="M5.25 20.25a6.75 6.75 0 0 1 13.5 0"/>';
 icon.info = '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.75h.01"/>';
@@ -917,6 +922,8 @@ ${DIRECT_PRINT_CSS}
 .pq__next:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .pq__retry{min-height:48px; justify-content:center; cursor:pointer} .pq__retry[hidden]{display:none}
 .pq__steps[hidden]{display:none}
+/* Printed: one line is enough, the room goes to what has to be packed. */
+.pq__steps.is-all .pq__step:not([data-step="3"]){display:none}
 .pq__main{display:grid; gap:.2rem; min-width:0}
 .pq__top{display:flex; align-items:center; gap:.5rem} .pq__id{font-weight:600}
 .pq__buyer{font-size:1.05rem; font-weight:600; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -933,20 +940,62 @@ ${DIRECT_PRINT_CSS}
 .pq__short{display:flex; align-items:flex-start; gap:.4rem; margin-top:.35rem; color:var(--bad); font-size:.85rem; line-height:1.35}
 .pq__short[hidden]{display:none}
 .pq__short .ico{width:16px; height:16px; flex:none; margin-top:.1rem}
-.pq__sheet{width:min(560px, 100%); max-height:90dvh; margin:auto auto 0; padding:0; border:0; border-radius:20px 20px 0 0; background:var(--panel); color:var(--fg); box-shadow:0 -20px 60px rgba(0,0,0,.5)}
+.pq__sheet{width:min(620px, 100%); max-height:90dvh; margin:auto auto 0; padding:0; border:0; border-radius:20px 20px 0 0; background:var(--panel); color:var(--fg); box-shadow:0 -20px 60px rgba(0,0,0,.5)}
 @media (min-width:700px){.pq__sheet{margin:auto; border-radius:20px}}
 .pq__sheet:focus,.pq__sheet:focus-visible{outline:none}
 .pq__sheet::backdrop{background:rgba(0,0,0,.55); backdrop-filter:blur(2px)}
 .pq__sheet[open]{animation:pq-up .22s var(--ease-out, ease-out)}
 @keyframes pq-up{from{transform:translateY(24px); opacity:0} to{transform:none; opacity:1}}
-.pq__sheet-in{display:grid; gap:.9rem; padding:.75rem 1.25rem 1.25rem; overflow:auto; max-height:90dvh}
-.pq__grab{justify-self:center; width:40px; height:4px; border-radius:2px; background:var(--line)}
+.pq__sheet-in{display:flex; flex-direction:column; gap:.9rem; padding:.75rem 1.25rem 1.25rem; overflow:auto; max-height:90dvh}
+.pq__sheet-in > *{flex:none}
+.pq__sheet-in > .pq__goods-list{flex:0 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain}
+/* A phone, or a short screen, scrolls the sheet as one page with the buttons held at the
+   bottom; a list two rows tall would hide what is in the box. */
+@media (max-height:640px),(max-width:480px){
+  .pq__sheet-in{padding-bottom:0}
+  .pq__sheet-in > .pq__goods-list{flex:none; overflow:visible}
+  /* How the label is doing, and why it failed, stay above a long list. */
+  .pq__sheet-in > .pq__grab,.pq__sheet-in > .pq__head,.pq__sheet-in > .pq__sub{order:-2}
+  .pq__sheet-in > .pq__steps,.pq__sheet-in > .pq__err{order:-1}
+  .pq__sheet-in > .pq__acts{position:sticky; bottom:0; z-index:2; margin:0 -1.25rem; padding:.75rem 1.25rem 1.25rem; background:var(--panel); box-shadow:0 -14px 18px -14px rgba(0,0,0,.45)}
+}
+.pq__grab{align-self:center; width:40px; height:4px; border-radius:2px; background:var(--line)}
 .pq__title:focus{outline:none} .pq__title{margin:0; font-size:1.15rem; font-weight:600} .pq__sub{margin:-.6rem 0 0; color:var(--muted); font-size:.85rem}
-.pq__goods-list{list-style:none; margin:0; padding:0; display:grid; gap:.6rem}
-.pq__good{display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:.9rem; padding:.55rem; border:1px solid var(--line); border-radius:12px; background:var(--panel-2)}
-.pq__good img,.pq__noimg{width:64px; height:64px; border-radius:10px; object-fit:cover; background:var(--line); display:block}
-.pq__gname{display:grid; gap:.1rem; min-width:0} .pq__gname b{font-weight:600; line-height:1.3} .pq__gname small{color:var(--muted); font-size:.82rem}
-.pq__qty{font-size:1.25rem; font-weight:700; padding-right:.3rem}
+.pq__goods-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.6rem}
+/* Never squeezed: a card shorter than its contents would hide an item from the packer. */
+.pq__goods-list > *{flex:none}
+.pq__goods-list.has-more{-webkit-mask-image:linear-gradient(#000 calc(100% - 44px), transparent); mask-image:linear-gradient(#000 calc(100% - 44px), transparent)}
+.pq__total{display:flex; align-items:baseline; justify-content:space-between; gap:.75rem; margin:0; padding:.6rem .9rem; border-radius:12px; background:color-mix(in srgb, var(--brand) 16%, transparent); font-size:.95rem; font-weight:500}
+.pq__total[hidden]{display:none} .pq__total b{font-size:1.05rem; font-weight:700; white-space:nowrap} .pq__total .mono{font-size:1.35rem}
+.pq__good{border:1px solid var(--line); border-radius:16px; background:var(--panel-2); overflow:hidden}
+.pq__take{display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:.95rem; padding:.65rem}
+.pq__pic{width:72px; height:72px; border-radius:12px; overflow:hidden; display:grid; place-items:center; background:color-mix(in srgb, var(--brand) 16%, var(--panel)); color:var(--brand)}
+.pq__pic img{width:100%; height:100%; object-fit:cover; display:block} .pq__pic .ico{width:52%; height:52%; stroke-width:1.3}
+.pq__gname{display:grid; justify-items:start; gap:.3rem; min-width:0} .pq__gname b{font-size:1.05rem; font-weight:600; line-height:1.25; overflow-wrap:anywhere}
+.pq__gname small{color:var(--muted); font-size:.85rem}
+.pq__size{padding:.14rem .6rem; border-radius:8px; background:var(--fg); color:var(--panel); font-size:1rem; font-weight:700; line-height:1.35}
+.pq__qty{display:grid; justify-items:center; gap:.15rem; min-width:3.4rem; text-align:center}
+.pq__qty b{min-width:3.2rem; padding:.3rem .5rem; border-radius:12px; border:1.5px solid var(--line); font-size:1.35rem; font-weight:700; line-height:1.2}
+.pq__qty.is-many b{border-color:var(--warn); background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn)}
+.pq__qty small{font-size:.75rem; color:var(--muted); white-space:nowrap}
+/* A bundle: what was sold on top, what to take grouped and stepped in underneath it. */
+.pq__bhead{display:grid; grid-template-columns:52px minmax(0,1fr) auto; align-items:center; gap:.85rem; padding:.65rem .85rem .65rem .65rem}
+.pq__bhead .pq__pic{width:52px; height:52px; border-radius:10px} .pq__bhead .pq__gname{gap:.15rem} .pq__bhead .pq__gname b{font-size:1rem}
+.pq__btag{padding:.06rem .45rem; border-radius:6px; background:color-mix(in srgb, var(--done) 20%, transparent); color:var(--done); font-size:.72rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase}
+.pq__bqty{color:var(--muted); font-size:.85rem; white-space:nowrap} .pq__bqty b{color:var(--fg); font-size:1rem}
+.pq__inside{--rail:1.1rem; position:relative; margin:0 .65rem .65rem 2.25rem}
+.pq__ihead{margin:0 0 .5rem; font-size:.9rem; font-weight:600; color:var(--fg)}
+.pq__parts{list-style:none; margin:0; padding:0; display:grid; gap:.5rem}
+.pq__part{position:relative; border-radius:14px; background:var(--panel); border:1px solid var(--line)}
+/* The rail: every item hangs off the bundle it belongs to, down to the last one. */
+.pq__part::before{content:''; position:absolute; left:calc(var(--rail) * -1); top:-.55rem; bottom:50%; width:var(--rail); box-sizing:border-box; border-left:2px solid var(--brand); border-bottom:2px solid var(--brand); border-bottom-left-radius:12px; pointer-events:none}
+.pq__part:not(:last-child)::after{content:''; position:absolute; left:calc(var(--rail) * -1); top:-.55rem; bottom:-.55rem; border-left:2px solid var(--brand); pointer-events:none}
+.pq__part:first-child::before,.pq__part:first-child::after{top:-1.9rem}
+@media (max-width:480px){
+  .pq__take{grid-template-columns:60px minmax(0,1fr) auto; gap:.7rem; padding:.55rem} .pq__take .pq__pic{width:60px; height:60px}
+  .pq__inside{--rail:.8rem; margin-left:1.5rem; margin-right:.5rem}
+  .pq__qty{min-width:2.8rem} .pq__qty b{min-width:2.7rem; font-size:1.2rem}
+}
 .pq__steps{display:grid; gap:.45rem; padding:.75rem .9rem; border-radius:12px; background:color-mix(in srgb, var(--fg) 4%, transparent)}
 .pq__step{display:flex; align-items:center; gap:.6rem; color:var(--dim); font-size:.92rem}
 .pq__step i{width:18px; height:18px; border-radius:50%; border:2px solid var(--line); flex:none; display:grid; place-items:center}
@@ -6122,15 +6171,9 @@ export function renderLabelLookup({ orders, printed = {}, arranged = {}, people 
  * ticking, no batches. Pressing it opens a sheet that shows what goes into this box,
  * with pictures, and follows the label until it is on paper.
  */
-/**
- * What goes into one box, for the sheet: name, variant, qty, picture.
- *
- * Named as the Produk page names it (boardGoods), never by the channel's listing title: the
- * same jar sold on Shopee, Tokopedia and Shopify reads the same to whoever packs it.
- */
-function packGoods(o, images) {
-  const goods = boardGoods(o.lines, images).map(({ name, variant, qty, sku, img }) => ({ name, variant, qty, sku, img }));
-  const units = goods.reduce((n, g) => n + g.qty, 0);
+/** What goes into one box, for the sheet (src/pack-list.js): catalogue names, bundles taken apart. */
+function packGoods(o, images, shelf) {
+  const { goods, units } = packList(o, images, shelf);
   return { units, goods, json: JSON.stringify(goods).replace(/</g, '\\u003c') };
 }
 
@@ -6149,7 +6192,7 @@ function dayHeading(day, today) {
  * one heading per day. Read off the print ledger, so a row is here only once the
  * printer said it printed - never because a label was merely prepared.
  */
-function packerDoneList(done, images, today) {
+function packerDoneList(done, images, today, shelf = null) {
   if (!done.length) return '';
   const days = new Map();
   for (const item of done) {
@@ -6159,7 +6202,7 @@ function packerDoneList(done, images, today) {
   }
   return [...days].map(([day, items]) => `<li class="pq__day" data-day="${escape(day)}"><h3 class="pq__dayh">${escape(dayHeading(day, today))}<span class="mono">${items.length}</span></h3>
     <ul class="pq__list">${items.map(({ order: o, entry }) => {
-      const { units, goods, json } = packGoods(o, images);
+      const { units, goods, json } = packGoods(o, images, shelf);
       return `<li class="pq__row pq__row--done" data-state="done" data-key="${escape(`${o.channel}:${o.id}`)}">
         <button class="pq__open" type="button" data-view aria-label="Lihat isi paket ${escape(o.id)}">
           <span class="pq__main">
@@ -6178,7 +6221,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
   const online = Boolean(bench?.online);
   const printerName = bench?.agent?.name || 'printer gudang';
   const list = rows.map(({ order: o, readiness }) => {
-    const { units, goods, json: goodsJson } = packGoods(o, images);
+    const { units, goods, json: goodsJson } = packGoods(o, images, shelf);
     const key = `${o.channel}:${o.id}`;
     // Nothing on the shelf to pack: no label, and the row says what is missing.
     // The page keeps holding `data-need` against the shelf as it moves (PACKER_SCRIPT).
@@ -6228,10 +6271,11 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       <p class="pq__empty" id="pq-e-todo"${rows.length ? ' hidden' : ''}>${done.length ? `${svg('check')}<span>Semua paketmu sudah dicetak.</span>` : '<span>Belum ada paket yang ditugaskan kepadamu.</span>'}</p>
     </section>
     <section class="pq__panel" role="tabpanel" id="pq-p-done" aria-labelledby="pq-t-done" hidden>
-      <ul class="pq__days" id="pq-done">${packerDoneList(done, images, today)}</ul>
+      <ul class="pq__days" id="pq-done">${packerDoneList(done, images, today, shelf)}</ul>
       <p class="pq__empty" id="pq-e-done"${done.length ? ' hidden' : ''}><span>Belum ada label yang tercetak.</span></p>
     </section>
   </div>
+  ${['cube', 'bowl', 'crate', 'pouch'].map((name) => `<template data-pq-icon="${name}">${svg(name)}</template>`).join('')}
   <template id="pq-tick">${svg('check')}</template>
   <dialog class="pq__sheet" id="pq-sheet" aria-labelledby="pq-title">
     <div class="pq__sheet-in">
@@ -6239,6 +6283,7 @@ function packerBody({ rows, done = [], bench, csrf, size, images, shelf = null, 
       <div class="pq__head"><h2 class="pq__title" id="pq-title" tabindex="-1" autofocus>Isi paket</h2>
         <button class="pq__x" type="button" id="pq-x" aria-label="Tutup">${svg('close')}</button></div>
       <p class="pq__sub mono" id="pq-order"></p>
+      <p class="pq__total" id="pq-total"></p>
       <ul class="pq__goods-list" id="pq-goods"></ul>
       <div class="pq__steps" role="status" aria-live="polite">
         <span class="pq__step" data-step="1"><i></i>Menyiapkan label</span>
@@ -6279,7 +6324,7 @@ const PACKER_SCRIPT = `
 (function () {
   var root = document.getElementById('pq'); if (!root) return;
   var sheet = document.getElementById('pq-sheet');
-  var goodsEl = document.getElementById('pq-goods'), orderEl = document.getElementById('pq-order');
+  var goodsEl = document.getElementById('pq-goods'), totalEl = document.getElementById('pq-total'), orderEl = document.getElementById('pq-order');
   var waitEl = document.getElementById('pq-wait'), errEl = document.getElementById('pq-err'), closeBtn = document.getElementById('pq-close');
   var retryBtn = document.getElementById('pq-retry'), stepsEl = sheet.querySelector('.pq__steps');
   var nextBtn = document.getElementById('pq-next'), nextWho = document.getElementById('pq-next-who'), xBtn = document.getElementById('pq-x'), shutBtn = document.getElementById('pq-shut');
@@ -6497,6 +6542,7 @@ const PACKER_SCRIPT = `
 
   /* ---- the sheet ---- */
   function step(n, failed) {
+    stepsEl.classList.toggle('is-all', n > 3);
     sheet.querySelectorAll('.pq__step').forEach(function (s) {
       var k = Number(s.getAttribute('data-step'));
       s.className = 'pq__step' + (k < n ? ' is-done' : k === n ? (failed ? ' is-fail' : ' is-now') : '');
@@ -6508,12 +6554,54 @@ const PACKER_SCRIPT = `
   function fillGoods(row) {
     var goods = []; try { goods = JSON.parse(row.querySelector('.pq__goods').textContent); } catch (e) {}
     orderEl.textContent = row.querySelector('.pq__id').textContent + ' · ' + row.querySelector('.pq__buyer').textContent;
+    var total = 0;
     goodsEl.innerHTML = goods.map(function (g) {
-      return '<li class="pq__good">' + (g.img ? '<img src="' + esc(g.img) + '" alt="" width="64" height="64" loading="eager" decoding="async">' : '<span class="pq__noimg" aria-hidden="true"></span>')
-        + '<span class="pq__gname"><b>' + esc(g.name) + '</b>' + (g.variant ? '<small>' + esc(g.variant) + '</small>' : '') + '</span>'
-        + '<span class="pq__qty mono">×' + g.qty + '</span></li>';
+      var parts = g.parts || [];
+      if (!parts.length) {
+        total += g.qty;
+        return '<li class="pq__good pq__take">' + pic(g.img, 'cube') + named(g) + qty(g.qty, '') + '</li>';
+      }
+      var inside = parts.reduce(function (n, p) { return n + p.qty; }, 0);
+      total += inside;
+      // The bundle's own row only says what was sold; what the hands take is the group
+      // under it, so that is where the big photos, the sizes and the quantities are.
+      return '<li class="pq__good pq__bundle">'
+        + '<div class="pq__bhead">' + pic(g.img, 'cube')
+        + '<span class="pq__gname"><span class="pq__btag">' + (parts.length > 1 ? 'Bundle' : 'Isi ' + parts[0].each) + '</span><b>' + esc(g.name) + '</b>' + (g.variant ? '<small>' + esc(g.variant) + '</small>' : '') + '</span>'
+        + '<span class="pq__bqty">' + (g.qty > 1 ? '<b class="mono">' + g.qty + '</b> set' : 'dipesan <b class="mono">1</b>') + '</span></div>'
+        + '<div class="pq__inside"><p class="pq__ihead">Ambil ' + inside + ' item ini</p>'
+        + '<ul class="pq__parts" aria-label="Isi ' + esc(g.name) + '">' + parts.map(function (p) {
+            return '<li class="pq__part pq__take">' + pic(p.img, p.icon) + named(p) + qty(p.qty, g.qty > 1 ? g.qty + ' set × ' + p.each : '') + '</li>';
+          }).join('') + '</ul></div></li>';
     }).join('') || '<li class="dim">Isi paket tidak tercatat.</li>';
+    totalEl.hidden = !goods.length;
+    totalEl.innerHTML = '<span>Total masuk ke box</span><b><span class="mono">' + total + '</span> item</b>';
+    goodsEl.scrollTop = 0; goodsEl.parentNode.scrollTop = 0;
+    requestAnimationFrame(more);
   }
+  function iconOf(name) {
+    var t = document.querySelector('[data-pq-icon="' + name + '"]') || document.querySelector('[data-pq-icon="cube"]');
+    return t ? t.innerHTML : '';
+  }
+  function pic(src, name) {
+    return '<span class="pq__pic" data-icon="' + esc(name) + '">' + (src ? '<img src="' + esc(src) + '" alt="" width="72" height="72" loading="eager" decoding="async">' : iconOf(name)) + '</span>';
+  }
+  // The size is what tells two look-alike jars apart, so it is not small grey print.
+  function named(g) {
+    return '<span class="pq__gname"><b>' + esc(g.name) + '</b>' + (g.variant ? '<span class="pq__size">' + esc(g.variant) + '</span>' : '') + '</span>';
+  }
+  function qty(n, why) {
+    return '<span class="pq__qty' + (n > 1 ? ' is-many' : '') + '"><b class="mono">×' + n + '</b>' + (why ? '<small>' + esc(why) + '</small>' : '') + '</span>';
+  }
+  // A picture that will not load (warehouse wifi) becomes the drawing, never a broken frame.
+  goodsEl.addEventListener('error', function (e) {
+    var box = e.target && e.target.closest ? e.target.closest('.pq__pic') : null;
+    if (box) box.innerHTML = iconOf(box.getAttribute('data-icon'));
+  }, true);
+  // More of the parcel below the fold: the list says so with a fade at its edge.
+  function more() { goodsEl.classList.toggle('has-more', goodsEl.scrollHeight - goodsEl.clientHeight - goodsEl.scrollTop > 8); }
+  goodsEl.addEventListener('scroll', more, { passive: true });
+  window.addEventListener('resize', more);
   /*
    * The bottom of the sheet says what comes next. While a label is on its way: Tutup,
    * held. Printed, with another parcel waiting: "Pesanan berikutnya" - one tap prints
@@ -6545,7 +6633,7 @@ const PACKER_SCRIPT = `
     stepsEl.hidden = false; errEl.hidden = true;
     waitEl.textContent = 'Menunggu ' + who + ' mencetak';
     go(1); footer('busy');
-    open();
+    open(); requestAnimationFrame(more);
   }
   // A printed parcel, opened from "Sudah dicetak": its contents and when, nothing to press.
   function view(row) {
@@ -6553,16 +6641,18 @@ const PACKER_SCRIPT = `
     var t = row.querySelector('.pq__stamp .mono');
     orderEl.textContent += t ? ' · dicetak ' + t.textContent : '';
     stepsEl.hidden = true; errEl.hidden = true; retry = null; footer('view');
-    open();
+    open(); requestAnimationFrame(more);
   }
   function done(row) {
     busy = false; busyRow = null; step(4);
     moveToDone(row);
     footer('done');
+    requestAnimationFrame(more);
   }
   function fail(row, message) {
     busy = false; busyRow = null; step(current, true);
     errEl.textContent = 'Gagal: ' + message; errEl.hidden = false;
+    goodsEl.parentNode.scrollTop = 0;
     paintButtons();
     footer('fail');
     pullShelf();

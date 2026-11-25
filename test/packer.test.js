@@ -71,6 +71,34 @@ test('the packer reads catalogue names, the same for every channel, on both tabs
   assert.doesNotMatch(todo + done, /Paket Set Suplemen/);
 });
 
+test('a bundle is taken apart on the sheet, by the recipe the shelf is counted by', async () => {
+  const { packList, packParts } = await import('../src/pack-list.js');
+  const images = { 'OMC-180-001': { thumb: 'https://img/c180.jpg' }, 'OMO-30-001': { thumb: 'https://img/o30.jpg' } };
+  const said = (parts) => parts.map((p) => `${p.name}|${p.variant}|${p.qty}`);
+
+  const io = packList({ lines: [{ sku: 'The-IO60-Protocol180+30', name: 'TREELOGY - panjang', qty: 2 }, { sku: 'OMC90', qty: 1 }] }, images);
+  assert.deepEqual(said(io.goods[0].parts), ['Moringa Capsules|180 caps|2', 'Moringa Seed Oil|30 ml|2']);
+  assert.deepEqual(io.goods[0].parts.map((p) => p.img), ['https://img/c180.jpg', 'https://img/o30.jpg'], 'each item has its own picture');
+  assert.deepEqual(io.goods[1].parts, [], 'a jar is the thing itself');
+  assert.deepEqual([io.units, io.items], [3, 5], 'two bundles of two, and one jar');
+
+  // Not a bundle in the catalogue, and still more than one thing to take.
+  assert.deepEqual(said(packParts('OMC-270-001', 2)), ['Moringa Capsules|90 caps|6']);
+  const set = packParts('MRS-002', 1);
+  assert.deepEqual(said(set), ['Bowl||1', 'Bamboo Whisk|120 prongs|1', 'Bamboo Scoop||1', 'Wooden Box||1', 'Moringa Powder|45 gram|1']);
+  assert.deepEqual([set[0].img, set[0].icon, set[3].icon], ['', 'bowl', 'crate'], 'never photographed: a drawing of it');
+
+  // A recipe changed on the Stok page is what the packer reads.
+  const shelf = { recipes: { 'Inside-Out-60-Protocol180+30': { 'M-036': 2, 'M-038': 1 } }, items: {} };
+  assert.deepEqual(said(packParts('Inside-Out-60-Protocol180+30', 1, {}, shelf)), ['Moringa Capsules|90 caps|2', 'Moringa Seed Oil|30 ml|1']);
+  assert.deepEqual(packParts('TIDAK-ADA', 1), [], 'an unknown SKU is not guessed at');
+
+  const html = renderLabels({ ...base, user: packer, isPacker: true, orders: [{ ...order('#1', 'W'), lines: [{ sku: 'MRS-002', qty: 1 }] }], assignments, packers: [packer] });
+  assert.match(html, /"name":"Wooden Box"/);
+  assert.match(html, /<template data-pq-icon="bowl"><svg/);
+  assert.match(html, /id="pq-total"/);
+});
+
 test('whoever may write gets the hand-out tools, the chip on the row and a pile per packer', () => {
   const html = renderLabels({ ...base, user: agas, orders: [order('#1', 'Wiwiek'), order('#2', 'Budi')], assignments, packers: [packer] });
   assert.match(html, /<select class="dr__in" name="packer" id="lb-packer"><option value="budi@treelogy.com">Budi<\/option>/);

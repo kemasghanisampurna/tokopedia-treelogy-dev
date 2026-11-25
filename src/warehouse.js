@@ -125,6 +125,16 @@ let catalogueVersion = 0;
 onMasterChange(() => { catalogueVersion += 1; });
 
 /**
+ * The product each shelf item is: the one whose single unit is exactly one of that item.
+ * An item no single product stands for (a bowl, a wooden box) is in no entry.
+ *
+ * @returns {Record<string, object>} code -> master product
+ */
+export function shelfProducts(edited = {}) {
+  return shelfIndex(edited).products;
+}
+
+/**
  * A shelf item under the name the Produk page gives it: M-087 "Sample Organic Moringa Oil
  * 3 mL" is the catalogue's "Moringa Seed Oil 3 ml" - the product whose one unit is exactly
  * one of that item. An item no single product stands for keeps the shelf's own name.
@@ -132,19 +142,25 @@ onMasterChange(() => { catalogueVersion += 1; });
  * @returns {Record<string, string>} code -> name
  */
 export function shelfNames(edited = {}) {
+  return shelfIndex(edited).names;
+}
+
+function shelfIndex(edited) {
   const key = edited && typeof edited === 'object' ? edited : NO_EDITS;
   const hit = NAMES.get(key);
-  if (hit && hit.version === catalogueVersion) return hit.names;
-  const out = {};
+  if (hit && hit.version === catalogueVersion) return hit;
+  const products = {};
   for (const product of allProducts()) {
     if (isBundle(product)) continue;
     const recipe = recipeOf(product.sku, edited);
     const codes = recipe ? Object.keys(recipe) : [];
-    if (codes.length !== 1 || recipe[codes[0]] !== 1 || out[codes[0]]) continue;
-    out[codes[0]] = [product.name, product.variant].filter(Boolean).join(' ');
+    if (codes.length !== 1 || recipe[codes[0]] !== 1 || products[codes[0]]) continue;
+    products[codes[0]] = product;
   }
-  NAMES.set(key, { version: catalogueVersion, names: out });
-  return out;
+  const names = Object.fromEntries(Object.entries(products).map(([code, p]) => [code, [p.name, p.variant].filter(Boolean).join(' ')]));
+  const entry = { version: catalogueVersion, names, products };
+  NAMES.set(key, entry);
+  return entry;
 }
 
 /** The name a person reads for a shelf item: the catalogue's, else the shelf's own. */
